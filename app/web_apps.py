@@ -21,9 +21,9 @@ import re
 # ---------------------------------------------------------------- 固定版本
 
 LOGISTICS_QUOTE_REPO = "Berg-E5/logistics-quote"
-LOGISTICS_QUOTE_COMMIT = "c72de83bd5d0631f4f11197f4e0b82945dbc35a3"
+LOGISTICS_QUOTE_COMMIT = "4c71d24f557999ac9e607fe4b4ecb28e2d5df2fc"
 LOGISTICS_QUOTE_INSTALL_SHA256 = (
-    "0d798a7c095394c75763395f64c109e37da3a4245fa0394de257c0a61eba5ddd"
+    "c3a35fa0bc5577e345952ba79ebdede9eca1d55cc54aaf6dccc42d8942fca871"
 )
 
 MUSIC_UNLOCK_REPO = "Berg-E5/music-unlock"
