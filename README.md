@@ -83,6 +83,24 @@
 - 域名要先解析到这台 VPS，否则证书签发会失败 —— 可以先勾「跳过 HTTPS 证书申请」用 HTTP 先验证。
 - 面板是 **Alpha**，请先在能备份或重装的 VPS 上试。
 
+### 推回 GitHub
+
+这台开发机直连 `github.com:443` 会被 reset，`git push` 走不通，但 `api.github.com` 是通的。
+所以仓库自带了一个走 API 的推送脚本（效果和 `git push` 一样）：
+
+```bash
+python scripts/push_github_api.py                      # 推 main
+python scripts/push_github_api.py --repo 用户名/仓库名    # 换仓库
+python scripts/push_github_api.py --dry-run             # 只看会传什么
+```
+
+它上传的是 **git 索引里的原始 blob**（用 `git cat-file` 取），不是工作区文件 ——
+Windows 上 `core.autocrlf=true` 时工作区是 CRLF、索引里是 LF，
+传工作区文件会让远端存成 CRLF，shell 脚本在 Linux 上会报 `bad interpreter`。
+
+前提是本机装了 `gh` 并登录过（`gh auth login`），token 从 `gh auth token` 取，不落在文件里。
+
+
 ### 相对上游的改动
 
 | 改动 | 说明 |
