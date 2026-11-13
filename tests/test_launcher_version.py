@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_launcher_reuses_running_panel_before_the_update():
     launcher = (ROOT / "scripts" / "QuickStart-Windows.ps1").read_text(encoding="utf-8-sig")
     existing, update = launcher.split("$update = ", 1)
-    assert "Get-NetDeployPanelVersion" in existing
+    assert "Get-VPSDeployPanelVersion" in existing
     assert "$health.security -ceq 'local-only'" in existing
     assert "Start-Process $panelUrl\n        return" in existing
     assert "Update-Windows.ps1" in update
@@ -27,12 +27,12 @@ $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopba
 $listener.Start()
 $port = $listener.LocalEndpoint.Port
 try {
-    if (Test-NetDeployPortAvailable -Port $port) { throw 'Accepted an active listener' }
+    if (Test-VPSDeployPanelPortAvailable -Port $port) { throw 'Accepted an active listener' }
 } finally {
     $listener.Stop()
 }
-if (-not (Test-NetDeployPortAvailable -Port $port)) { throw 'Stopped listener left port blocked' }
-if (-not (Test-NetDeployPortAvailable -Port $port)) { throw 'Probe leaked its socket' }
+if (-not (Test-VPSDeployPanelPortAvailable -Port $port)) { throw 'Stopped listener left port blocked' }
+if (-not (Test-VPSDeployPanelPortAvailable -Port $port)) { throw 'Probe leaked its socket' }
 """
     subprocess.run(
         ["powershell.exe", "-NoProfile", "-Command", script],

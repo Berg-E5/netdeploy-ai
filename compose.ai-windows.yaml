@@ -1,4 +1,4 @@
-# Local-only port for a Windows-hosted NetDeploy API.
+# Local-only port for a Windows-hosted panel API.
 # Apply only with -f compose.yaml -f compose.ai-windows.yaml up codex-worker.
 services:
   codex-worker:

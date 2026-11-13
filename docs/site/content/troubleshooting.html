@@ -7,7 +7,7 @@
 <h2 id="ssh-postinstall">3X-UI 安装第 5 步 SSH 握手失败（SSH_HANDSHAKE_FAILED）</h2>
 <p>如果日志显示第 4/5 步 <code>Official installer finished</code>，但第 5/5 步提示 <code>SSH_HANDSHAKE_FAILED</code>，说明安装器已返回成功，<strong>只是最终 SSH 连接和验收未完成</strong>。这不能证明 3X-UI 没安装，<strong>请勿直接重复安装或清空原配置</strong>。</p>
 <ol>
-<li>更新 NetDeploy 并重启服务，刷新网页。新版会在执行远端命令<strong>之前</strong>最多尝试 3 次受信任的 SSH 连接；不会重复执行安装器、绕过主机指纹验证或自动重置 SSH。</li>
+<li>更新本面板并重启服务，刷新网页。新版会在执行远端命令<strong>之前</strong>最多尝试 3 次受信任的 SSH 连接；不会重复执行安装器、绕过主机指纹验证或自动重置 SSH。</li>
 <li>打开原来的失败/待验收任务，点击 <strong>只读检查现有 3X-UI（不重装）</strong>。它仅通过已经核对指纹的 SSH 检查服务、实际监听和本机 HTTP 响应；如果面板在运行，可继续查看原来的管理地址和凭据。</li>
 <li>如果 SSH 仍无法握手，请从云厂商浏览器控制台/串口检查 VPS 的 SSH 服务和负载。在 Ubuntu/Debian 的控制台可执行下面的只读检查命令：</li>
 </ol>
@@ -16,10 +16,10 @@ sudo systemctl status x-ui --no-pager
 sudo ss -lntp | grep -E ':(22|8443)[[:space:]]'
 sudo journalctl -u ssh -n 40 --no-pager</code></pre>
 <p>上面的 <code>8443</code> 是示例面板端口，请替换为你安装时填写的实际端口。SSH 握手失败可能与临时负载、连接限制、sshd 状态或算法协商有关，单凭这条错误无法确定根因。<code>Test-NetConnection IP -Port 22</code> 成功只说明 TCP 可达，<strong>不代表 SSH 协议握手正常</strong>。</p>
-<p>如果提示 <code>SSH_HOST_KEY_CHANGED</code> 或 <code>SSH_ALGORITHM_MISMATCH</code>，NetDeploy 不会自动重试或跳过安全校验；请通过云服务商独立核对指纹或处理算法兼容性。面板自身即使已运行，云安全组仍须另外确认管理端口是否放行并限制来源 IP；公网明文 HTTP 有凭据泄露风险，建议用 NPM HTTPS。</p>
+<p>如果提示 <code>SSH_HOST_KEY_CHANGED</code> 或 <code>SSH_ALGORITHM_MISMATCH</code>，本面板不会自动重试或跳过安全校验；请通过云服务商独立核对指纹或处理算法兼容性。面板自身即使已运行，云安全组仍须另外确认管理端口是否放行并限制来源 IP；公网明文 HTTP 有凭据泄露风险，建议用 NPM HTTPS。</p>
 
 <h2 id="fingerprint">SSH 指纹变化、信任失败</h2>
-<p>VPS 重装、系统更新了主机密钥、IP 发生回收都可能导致指纹变化。请从服务商独立控制台核对后使用 NetDeploy 的 <strong>SSH 安全 → 更新指纹</strong>；不要使用 <code>StrictHostKeyChecking=no</code> 绕过身份校验。</p>
+<p>VPS 重装、系统更新了主机密钥、IP 发生回收都可能导致指纹变化。请从服务商独立控制台核对后使用本面板的 <strong>SSH 安全 → 更新指纹</strong>；不要使用 <code>StrictHostKeyChecking=no</code> 绕过身份校验。</p>
 <h2 id="wrong-credentials">root 密码正确但仍无法登录</h2>
 <p>需要区分 root 本地密码、SSH 是否启用密码认证、root SSH 是否被禁用，以及 Google Cloud 的 OS Login/IAM 或 PAM 限制。见 <a href="google-cloud.html#os-login">谷歌云专题</a>。修改 root 密码本身不等于开放 root SSH。</p>
 <h2 id="ufw">UFW 放行了，公网仍打不开</h2>
@@ -28,7 +28,7 @@ sudo journalctl -u ssh -n 40 --no-pager</code></pre>
 <p>检查域名是否解析到该 VPS 公网 IP、TCP 80 是否可从公网访问、Certbot 续期服务是否正常，以及 3X-UI 实际监听与证书配置。如果软件已装好但 HTTPS 阶段失败，应使用 <strong>继续完成 HTTPS</strong> 创建修复计划，不必覆盖现有 3X-UI。</p>
 <h2 id="certbot-debian13">Debian 13 Certbot 4.0：IP 证书不支持</h2>
 <p>如果看到 <code>Installed Certbot does not support IP certificates (requires recent Certbot 5.3+)</code>，说明旧流程错误地使用了 Debian 13 软件源中的 Certbot 4.0。<strong>3X-UI 安装与 IP 证书是两个独立阶段</strong>：日志第 5/9 步已经通过，代表面板安装成功，只是 HTTPS 尚未完成。<code>UFW_UNAVAILABLE</code> 仅提示本机没装 UFW，不是该报错原因。</p>
-<ol><li>关闭旧 NetDeploy 窗口，更新并启动 v{{version}} 或更新版本，浏览器强制刷新。</li><li>选择原 VPS 的 3X-UI 卡片 → <strong>查看已安装面板</strong> → <strong>继续完成 HTTPS</strong>；如果已有失败任务，请先重新生成当前版本的四步证书方案并审核。</li><li>系统自动从官方 PyPI 安装独立 Certbot 5.8.0，不会更改服务器原有的 <code>/usr/bin/certbot</code> 与系统续期计时器；IP 证书另用 <code>/etc/netdeploy/letsencrypt</code> 和 <code>netdeploy-certbot-renew.timer</code>。</li><li>确认 VPS 可通过 HTTPS 访问 PyPI、云厂商允许公网 TCP 80 进入 VPS，然后验收 HTTPS 面板访问及本机定时器运行。</li></ol>
+<ol><li>关闭旧面板窗口，更新并启动 v{{version}} 或更新版本，浏览器强制刷新。</li><li>选择原 VPS 的 3X-UI 卡片 → <strong>查看已安装面板</strong> → <strong>继续完成 HTTPS</strong>；如果已有失败任务，请先重新生成当前版本的四步证书方案并审核。</li><li>系统自动从官方 PyPI 安装独立 Certbot 5.8.0，不会更改服务器原有的 <code>/usr/bin/certbot</code> 与系统续期计时器；IP 证书另用 <code>/etc/netdeploy/letsencrypt</code> 和 <code>netdeploy-certbot-renew.timer</code>。</li><li>确认 VPS 可通过 HTTPS 访问 PyPI、云厂商允许公网 TCP 80 进入 VPS，然后验收 HTTPS 面板访问及本机定时器运行。</li></ol>
 <p>如需在 VPS 控制台验证新环境是否准备完成，可运行以下只读命令；<strong>不要删除系统 Certbot、不要重装已经成功安装的面板</strong>。</p>
 <pre><code>sudo /opt/netdeploy-certbot/venv/bin/certbot --version
 sudo systemctl status netdeploy-certbot-renew.timer --no-pager
@@ -49,4 +49,4 @@ docker compose version</code></pre>
 <h2 id="invalidated">计划提示失效或需要刷新</h2>
 <p>如果服务器重装、SSH 主机密钥更换、证书域名或安装固定脚本发生变化，历史审批不再有效。可返回服务器控制台重新环境检测、刷新方案、再次审核。已有部分安装时先检查真实 VPS 状态，避免重复执行。</p>
 <h2 id="support">如何反馈故障</h2>
-<p>在 <a href="https://github.com/slobys/netdeploy-ai/issues">GitHub Issues</a> 留下：NetDeploy 版本、VPS 系统、CPU、执行项目、出错阶段和<strong>脱敏</strong>的最后一步错误。禁止上传 SSH 密码、Token、证书私钥、管理员初始密码或完整 <code>.env</code>。</p>
+<p>在 <a href="https://github.com/Berg-E5/netdeploy-ai/issues">GitHub Issues</a> 留下：面板版本、VPS 系统、CPU、执行项目、出错阶段和<strong>脱敏</strong>的最后一步错误。禁止上传 SSH 密码、Token、证书私钥、管理员初始密码或完整 <code>.env</code>。</p>

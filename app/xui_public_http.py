@@ -1,4 +1,4 @@
-"""Enable direct public HTTP on an existing, NetDeploy-managed 3X-UI.
+"""Enable direct public HTTP on an existing, panel-managed 3X-UI.
 
 Requires an explicit approved plan. Never reinstall x-ui, change its
 credentials, touch its certificate settings or use TCP 80/Certbot.

@@ -15,7 +15,7 @@ import app.main as main
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ADMIN = {"X-Admin-Token": os.environ["NETDEPLOY_ADMIN_TOKEN"]}
+ADMIN = {"X-Admin-Token": os.environ["VPSDEPLOY_ADMIN_TOKEN"]}
 
 
 def _script(path):
@@ -26,12 +26,12 @@ def test_windows_start_is_native_and_docker_independent():
     starter = _script("scripts/Start-Windows.ps1")
     quickstart = _script("scripts/QuickStart-Windows.ps1")
     assert "Start-Windows.ps1" in quickstart
-    assert "NETDEPLOY_CODEX_NATIVE_AUTO_START = '1'" in starter
-    assert "NETDEPLOY_CODEX_AUTO_START" in starter
-    assert "NETDEPLOY_WORKER_TOKEN=$workerToken" in starter
-    assert "$env:NETDEPLOY_CODEX_WORKER_URL = 'http://127.0.0.1:8789'" in starter
-    assert "NETDEPLOY_ADMIN_TOKEN" in starter
-    assert "NETDEPLOY_LOCAL_AUTO_LOGIN = '1'" in starter
+    assert "VPSDEPLOY_CODEX_NATIVE_AUTO_START = '1'" in starter
+    assert "VPSDEPLOY_CODEX_AUTO_START" in starter
+    assert "VPSDEPLOY_WORKER_TOKEN=$workerToken" in starter
+    assert "$env:VPSDEPLOY_CODEX_WORKER_URL = 'http://127.0.0.1:8789'" in starter
+    assert "VPSDEPLOY_ADMIN_TOKEN" in starter
+    assert "VPSDEPLOY_LOCAL_AUTO_LOGIN = '1'" in starter
     assert "if ($autoCodex)" in starter
     assert "Get-Command docker" not in starter
     assert "docker desktop start" not in starter.lower()
@@ -81,8 +81,8 @@ def test_codex_worker_is_local_optional_and_restartable():
     assert "restart: unless-stopped" in worker_section
     assert 'profiles: ["ai"]' in worker_section
     assert "codex-auth:/home/agent/.codex" in worker_section
-    assert "NETDEPLOY_ADMIN_TOKEN" not in worker_section
-    assert "NETDEPLOY_SSH_KEY_FILE" not in worker_section
+    assert "VPSDEPLOY_ADMIN_TOKEN" not in worker_section
+    assert "VPSDEPLOY_SSH_KEY_FILE" not in worker_section
     assert "docker.sock" not in worker_section.lower().replace("# no external port, no ssh key mount, no database, no docker socket.", "")
     assert '127.0.0.1:8788:8788' in win
     assert '0.0.0.0:8788' not in win
@@ -124,10 +124,10 @@ def test_codex_startup_progress_is_private_and_expires(monkeypatch, tmp_path):
 
 def test_windows_documentation_explains_one_click_and_first_auth():
     readme = _script("README.md")
-    assert "QuickStart-NetDeploy.bat" in readme
+    assert "QuickStart-VPSDeployPanel.bat" in readme
     assert "Windows 默认原生模式（无需 Docker）" in readme
     assert "不启动 Docker Desktop" in readme
     assert "%LOCALAPPDATA%" in readme
     assert "127.0.0.1:8789" in readme
-    assert "NETDEPLOY_CODEX_AUTO_START=0" in readme
+    assert "VPSDEPLOY_CODEX_AUTO_START=0" in readme
     assert "同一 Windows 用户" in readme

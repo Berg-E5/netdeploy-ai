@@ -1,6 +1,6 @@
 """Audited Docker Engine + Compose plugin prerequisites for Dockge Apps.
 
-For a pristine VPS, NetDeploy downloads the official get.docker.com
+For a pristine VPS, the panel downloads the official get.docker.com
 convenience script into a local reviewed file, checks it before execution,
 and verifies Docker Engine, Buildx and the Compose v2 CLI plugin.
 Never purge, remove, upgrade, or adopt an existing Docker installation.

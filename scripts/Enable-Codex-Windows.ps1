@@ -159,10 +159,10 @@ $mutex = $null
 $lockHeld = $false
 try {
     # Prevent a second QuickStart or manual enable from racing Docker Compose.
-    $mutex = New-Object System.Threading.Mutex($false, 'Local\NetDeployCodexWorkerStartup')
+    $mutex = New-Object System.Threading.Mutex($false, 'Local\VPSDeployPanelCodexWorkerStartup')
     try { $lockHeld = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $lockHeld = $true }
     if (-not $lockHeld) {
-        Write-Host '[NetDeploy AI] Codex Worker 已在另一窗口进行启动检查。'
+        Write-Host '[VPS Deploy Panel] Codex Worker 已在另一窗口进行启动检查。'
         return
     }
 
@@ -179,33 +179,33 @@ try {
 
     $envFile = Join-Path $root '.env'
     if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
-        throw '未找到 .env。请先正常运行一次 QuickStart-NetDeploy.bat。'
+        throw '未找到 .env。请先正常运行一次 QuickStart-VPSDeployPanel.bat。'
     }
     $lines = @(Get-Content -LiteralPath $envFile -Encoding UTF8)
     $admin = $null
     $worker = $null
     foreach ($line in $lines) {
-        if ($line -match '^NETDEPLOY_ADMIN_TOKEN=(.*)$') { $admin = $Matches[1].Trim('"', "'") }
-        if ($line -match '^NETDEPLOY_WORKER_TOKEN=(.*)$') { $worker = $Matches[1].Trim('"', "'") }
+        if ($line -match '^(?:VPSDEPLOY|NETDEPLOY)_ADMIN_TOKEN=(.*)$') { $admin = $Matches[1].Trim('"', "'") }
+        if ($line -match '^(?:VPSDEPLOY|NETDEPLOY)_WORKER_TOKEN=(.*)$') { $worker = $Matches[1].Trim('"', "'") }
     }
     if ([string]::IsNullOrWhiteSpace($admin) -or $admin.Length -lt 24 -or
         $admin.StartsWith('REPLACE_')) {
-        throw '管理员令牌尚未初始化。请先正常运行 QuickStart-NetDeploy.bat。'
+        throw '管理员令牌尚未初始化。请先正常运行 QuickStart-VPSDeployPanel.bat。'
     }
     if ([string]::IsNullOrWhiteSpace($worker) -or $worker.Length -lt 24 -or
         $worker.StartsWith('REPLACE_')) {
-        if ($Auto) { throw 'Codex Worker 令牌尚未初始化。请先正常运行 QuickStart-NetDeploy.bat。' }
+        if ($Auto) { throw 'Codex Worker 令牌尚未初始化。请先正常运行 QuickStart-VPSDeployPanel.bat。' }
         if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
             throw '找不到 Python 启动器 py，无法生成 Worker 令牌。'
         }
         $worker = (& py -c 'import secrets;print(secrets.token_urlsafe(40))').Trim()
         if ($LASTEXITCODE -ne 0) { throw '无法生成 Codex Worker 令牌。' }
-        $lines = @($lines | Where-Object { $_ -notmatch '^NETDEPLOY_WORKER_TOKEN=' })
-        $lines += "NETDEPLOY_WORKER_TOKEN=$worker"
+        $lines = @($lines | Where-Object { $_ -notmatch '^(?:VPSDEPLOY|NETDEPLOY)_WORKER_TOKEN=' })
+        $lines += "VPSDEPLOY_WORKER_TOKEN=$worker"
         [System.IO.File]::WriteAllLines($envFile, $lines, [System.Text.UTF8Encoding]::new($false))
     }
-    $env:NETDEPLOY_ADMIN_TOKEN = $admin
-    $env:NETDEPLOY_WORKER_TOKEN = $worker
+    $env:VPSDEPLOY_ADMIN_TOKEN = $admin
+    $env:VPSDEPLOY_WORKER_TOKEN = $worker
 
     # A named local context is not proof that Docker Desktop is up. In
     # particular, "desktop-linux" can be absent or offline on cold boot.
@@ -267,15 +267,15 @@ try {
     if (-not $ready) { throw 'Codex Worker 尚未响应。请在后台 Codex AI 中刷新，或检查容器状态。' }
     [System.IO.File]::WriteAllText($marker, $fingerprint, [System.Text.UTF8Encoding]::new($false))
     Write-CodexStartupState 'ready' 'Codex Worker 已就绪。ChatGPT 登录状态将自动复用。'
-    Write-Host '[NetDeploy AI] Codex Worker 已就绪；无需单独打开 Codex，也无需重复授权。' -ForegroundColor Green
+    Write-Host '[VPS Deploy Panel] Codex Worker 已就绪；无需单独打开 Codex，也无需重复授权。' -ForegroundColor Green
 } catch {
     # Do not disclose paths, tokens, Docker output, or stack traces to the UI.
     $reason = $_.Exception.Message
     Write-CodexStartupState 'failed' $reason
     if ($Auto) {
-        Write-Warning ("[NetDeploy AI] Codex 可选服务未就绪：" + $reason + "。普通 VPS 功能不受影响。")
+        Write-Warning ("[VPS Deploy Panel] Codex 可选服务未就绪：" + $reason + "。普通 VPS 功能不受影响。")
     } else {
-        Write-Host ("[NetDeploy AI] Codex 启动失败：" + $reason) -ForegroundColor Red
+        Write-Host ("[VPS Deploy Panel] Codex 启动失败：" + $reason) -ForegroundColor Red
         exit 1
     }
 } finally {

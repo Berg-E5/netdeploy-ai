@@ -40,9 +40,9 @@ CATALOG = {
     "3x-ui-http": {
         "name": "3X-UI 公网 HTTP 直连", "subtitle": "启用已安装面板的公网 HTTP（不申请 SSL）",
         "category": "HTTP", "icon": "globe", "deployment": "install", "risk": "高", "internal": True,
-        "docs": "https://slobys.github.io/netdeploy-ai/deployments.html#npm",
+        "docs": "https://berg-e5.github.io/netdeploy-ai/deployments.html#npm",
         "summary": "已有本机监听的 3X-UI 无需重装；经明确审批后开放指定端口的 HTTP，验证失败回退。",
-        "requires": ["NetDeploy 管理并正在运行的 3X-UI", "原始 HTTP 仅本机监听", "用户批准明文 HTTP 风险", "云安全组管理 IP 白名单"],
+        "requires": ["本面板管理并正在运行的 3X-UI", "原始 HTTP 仅本机监听", "用户批准明文 HTTP 风险", "云安全组管理 IP 白名单"],
     },
     "s-ui": {
         "name": "S-UI", "subtitle": "sing-box 可视化管理面板", "category": "面板",
@@ -84,9 +84,9 @@ CATALOG = {
     "dockge-access": {
         "name": "Dockge Apps 端口与访问设置", "subtitle": "修改管理端口或访问模式（不重装）",
         "category": "容器", "icon": "lock", "deployment": "install", "internal": True, "risk": "高",
-        "docs": "https://slobys.github.io/netdeploy-ai/deployments.html#dockge",
+        "docs": "https://berg-e5.github.io/netdeploy-ai/deployments.html#dockge",
         "summary": "只修改已受管理的 Dockge Apps 端口映射；失败自动回退原配置。",
-        "requires": ["已有 NetDeploy Dockge Apps", "管理端已初始化", "SSH 信任正确", "TCP 端口空闲"],
+        "requires": ["已有本面板部署的 Dockge Apps", "管理端已初始化", "SSH 信任正确", "TCP 端口空闲"],
     },
     "wg-easy": {
         "name": "wg-easy", "subtitle": "WireGuard + Web 管理界面", "category": "VPN",
@@ -154,14 +154,14 @@ install -d -m 755 /etc/apt/keyrings
 curl --proto '=https' --tlsv1.2 -fsSL https://sing-box.app/gpg.key -o /tmp/netdeploy-sagernet.asc
 install -m 644 /tmp/netdeploy-sagernet.asc /etc/apt/keyrings/sagernet.asc
 rm -f /tmp/netdeploy-sagernet.asc
-cat > /etc/apt/sources.list.d/sagernet.sources <<'NETDEPLOY_APT'
+cat > /etc/apt/sources.list.d/sagernet.sources <<'VPSDEPLOY_APT'
 Types: deb
 URIs: https://deb.sagernet.org/
 Suites: *
 Components: *
 Enabled: yes
 Signed-By: /etc/apt/keyrings/sagernet.asc
-NETDEPLOY_APT
+VPSDEPLOY_APT
 apt-get update
 apt-get install -y sing-box
 """,
@@ -194,7 +194,7 @@ test ! -e /opt/netdeploy/wg-easy/compose.yaml
         "script": """set -eu
 umask 077
 mkdir -p /opt/netdeploy/wg-easy
-cat > /opt/netdeploy/wg-easy/compose.yaml <<'NETDEPLOY_WG_EASY_COMPOSE'
+cat > /opt/netdeploy/wg-easy/compose.yaml <<'VPSDEPLOY_WG_EASY_COMPOSE'
 services:
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy:15
@@ -230,7 +230,7 @@ networks:
       config:
         - subnet: 10.42.42.0/24
         - subnet: fdcc:ad94:bacf:61a3::/64
-NETDEPLOY_WG_EASY_COMPOSE
+VPSDEPLOY_WG_EASY_COMPOSE
 docker compose -f /opt/netdeploy/wg-easy/compose.yaml config -q
 """,
         "timeout": 30,
@@ -578,7 +578,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
                 "Docker Socket 拥有高权限；公网开放前必须明确确认安全风险，不能把未初始化的管理页面公开",
             ],
             "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
-            "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "先将面板绑定本机 127.0.0.1；选择 HTTPS 时自动按公网 IPv4 / 域名签发证书并验证，成功后才开放公网 HTTPS，失败不开放明文 HTTP", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],
+            "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入面板数据库或任务日志", "先将面板绑定本机 127.0.0.1；选择 HTTPS 时自动按公网 IPv4 / 域名签发证书并验证，成功后才开放公网 HTTPS，失败不开放明文 HTTP", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],
             "3x-ui-http": [
                 "只更改已安装受管理 3X-UI 的监听地址，不重装软件、不改管理员或证书设置",
                 "即使不申请证书，也会把面板原始 HTTP 端口暴露公网；明文密码可能被窃听",
@@ -603,7 +603,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             ],
             "hiddify": [
                 "执行 Hiddify 官网一键安装入口（release），安装版本由官方发布渠道决定",
-                "仅在已备份的独立 VPS 上审批。安装会改动系统与防火墙并使用 80/443，NetDeploy 不会替你修改云安全组",
+                "仅在已备份的独立 VPS 上审批。安装会改动系统与防火墙并使用 80/443，本面板不会替你修改云安全组",
                 "管理链接含访问凭据。安装完成后可在任务中打开管理面板，首次进入时由 Hiddify 启动快速设置",
             ],
         }[project],
@@ -624,7 +624,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         if options.get("certificate_type") == "ip":
             plan["warnings"].append(
                 "公网 IPv6 IP 证书采用约 160 小时的 shortlived 配置，"
-                "由 NetDeploy 独立 Certbot 和每四小时续期定时器维护；"
+                "由本面板独立 Certbot 和每四小时续期定时器维护；"
                 "续期依赖 TCP 80 持续可达，严禁关闭续期任务。"
             )
     if project in {"3x-ui", "s-ui"} and options.get("access_mode") == "npm":

@@ -1,4 +1,4 @@
-# NetDeploy AI · 开发阶段与验收清单
+# VPS Deploy Panel · 开发阶段与验收清单
 
 ## v0.1.0 Alpha（原始版本，已完成）
 

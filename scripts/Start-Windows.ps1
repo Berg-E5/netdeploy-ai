@@ -1,4 +1,4 @@
-﻿# NetDeploy AI Windows starter. Never writes credentials to the Git checkout history.
+﻿# VPS Deploy Panel Windows starter. Never writes credentials to the Git checkout history.
 param([switch]$Background)
 
 Set-StrictMode -Version Latest
@@ -16,7 +16,7 @@ try {
     Require-PythonLauncher
     $venvPython = Join-Path $root '.venv\Scripts\python.exe'
     if (-not (Test-Path $venvPython -PathType Leaf)) {
-        Write-Host '[NetDeploy AI] 正在创建隔离的 Python 虚拟环境...'
+        Write-Host '[VPS Deploy Panel] 正在创建隔离的 Python 虚拟环境...'
         & py -m venv (Join-Path $root '.venv')
         if ($LASTEXITCODE -ne 0) { throw '创建 Python 虚拟环境失败。' }
     }
@@ -32,7 +32,7 @@ try {
     }
     $marker = Join-Path $root '.venv\.requirements.sha256'
     if (-not (Test-Path $marker) -or ((Get-Content $marker -Raw).Trim() -ne $reqHash)) {
-        Write-Host '[NetDeploy AI] 正在安装或更新依赖...'
+        Write-Host '[VPS Deploy Panel] 正在安装或更新依赖...'
         & $venvPython -m pip install -r (Join-Path $root 'requirements.txt')
         if ($LASTEXITCODE -ne 0) { throw '依赖安装失败；请检查网络后重试。' }
         [System.IO.File]::WriteAllText($marker, $reqHash, [System.Text.UTF8Encoding]::new($false))
@@ -44,39 +44,41 @@ try {
     if (Test-Path $envFile) {
         $lines = @(Get-Content -Path $envFile -Encoding UTF8)
         foreach ($line in $lines) {
-            if ($line -match '^NETDEPLOY_ADMIN_TOKEN=(.*)$') { $savedToken = $Matches[1].Trim('"', "'") }
+            if ($line -match '^(?:VPSDEPLOY|NETDEPLOY)_ADMIN_TOKEN=(.*)$') { $savedToken = $Matches[1].Trim('"', "'") }
         }
     }
     if ([string]::IsNullOrWhiteSpace($savedToken) -or $savedToken.Length -lt 24 -or $savedToken.StartsWith('REPLACE_')) {
-        if ($env:NETDEPLOY_ADMIN_TOKEN -and $env:NETDEPLOY_ADMIN_TOKEN.Length -ge 24 -and -not $env:NETDEPLOY_ADMIN_TOKEN.StartsWith('REPLACE_')) {
+        if ($env:VPSDEPLOY_ADMIN_TOKEN -and $env:VPSDEPLOY_ADMIN_TOKEN.Length -ge 24 -and -not $env:VPSDEPLOY_ADMIN_TOKEN.StartsWith('REPLACE_')) {
+            $savedToken = $env:VPSDEPLOY_ADMIN_TOKEN
+        } elseif ($env:NETDEPLOY_ADMIN_TOKEN -and $env:NETDEPLOY_ADMIN_TOKEN.Length -ge 24 -and -not $env:NETDEPLOY_ADMIN_TOKEN.StartsWith('REPLACE_')) {
             $savedToken = $env:NETDEPLOY_ADMIN_TOKEN
         } else {
             $savedToken = (& $venvPython -c 'import secrets;print(secrets.token_urlsafe(40))').Trim()
             if ($LASTEXITCODE -ne 0) { throw '无法生成管理员令牌。' }
         }
-        $lines = @($lines | Where-Object { $_ -notmatch '^NETDEPLOY_ADMIN_TOKEN=' })
-        $lines += "NETDEPLOY_ADMIN_TOKEN=$savedToken"
+        $lines = @($lines | Where-Object { $_ -notmatch '^(?:VPSDEPLOY|NETDEPLOY)_ADMIN_TOKEN=' })
+        $lines += "VPSDEPLOY_ADMIN_TOKEN=$savedToken"
         [System.IO.File]::WriteAllLines($envFile, $lines, [System.Text.UTF8Encoding]::new($false))
-        Write-Host '[NetDeploy AI] 已自动生成本机管理员令牌并保存到不受 Git 管理的 .env。'
-        Write-Host '[NetDeploy AI] 本机启动时会自动登录，无需复制或输入令牌。' -ForegroundColor Green
+        Write-Host '[VPS Deploy Panel] 已自动生成本机管理员令牌并保存到不受 Git 管理的 .env。'
+        Write-Host '[VPS Deploy Panel] 本机启动时会自动登录，无需复制或输入令牌。' -ForegroundColor Green
     }
-    $env:NETDEPLOY_ADMIN_TOKEN = $savedToken
+    $env:VPSDEPLOY_ADMIN_TOKEN = $savedToken
     # Windows defaults to its own native Python/SDK worker. No Docker needed.
     # The FastAPI lifespan starts/stops the sidecar asynchronously, so a slow
     # first SDK install cannot block the VPS panel or its browser.
-    $autoCodex = ($env:NETDEPLOY_CODEX_AUTO_START -ne '0')
+    $autoCodex = ($env:VPSDEPLOY_CODEX_AUTO_START -ne '0')
     $workerToken = $null
     foreach ($line in $lines) {
-        if ($line -match '^NETDEPLOY_CODEX_AUTO_START=(.*)$') {
+        if ($line -match '^VPSDEPLOY_CODEX_AUTO_START=(.*)$') {
             if ($Matches[1].Trim('"', "'") -eq '0') { $autoCodex = $false }
         }
-        if ($line -match '^NETDEPLOY_WORKER_TOKEN=(.*)$') {
+        if ($line -match '^(?:VPSDEPLOY|NETDEPLOY)_WORKER_TOKEN=(.*)$') {
             $workerToken = $Matches[1].Trim('"', "'")
         }
     }
-    $env:NETDEPLOY_CODEX_NATIVE_AUTO_START = '0'
-    $env:NETDEPLOY_CODEX_WORKER_URL = ''
-    $env:NETDEPLOY_WORKER_TOKEN = ''
+    $env:VPSDEPLOY_CODEX_NATIVE_AUTO_START = '0'
+    $env:VPSDEPLOY_CODEX_WORKER_URL = ''
+    $env:VPSDEPLOY_WORKER_TOKEN = ''
     try {
         if ($autoCodex) {
             if ([string]::IsNullOrWhiteSpace($workerToken) -or $workerToken.Length -lt 24 -or
@@ -87,41 +89,41 @@ try {
                 }
                 $workerToken = ([string]$generated).Trim()
                 if ($workerToken.Length -lt 24) { throw 'Codex 令牌长度异常' }
-                $lines = @($lines | Where-Object { $_ -notmatch '^NETDEPLOY_WORKER_TOKEN=' })
-                $lines += "NETDEPLOY_WORKER_TOKEN=$workerToken"
+                $lines = @($lines | Where-Object { $_ -notmatch '^(?:VPSDEPLOY|NETDEPLOY)_WORKER_TOKEN=' })
+                $lines += "VPSDEPLOY_WORKER_TOKEN=$workerToken"
                 [System.IO.File]::WriteAllLines($envFile, $lines, [System.Text.UTF8Encoding]::new($false))
             }
             if ($workerToken -and $workerToken.Length -ge 24 -and
                 -not $workerToken.StartsWith('REPLACE_')) {
-                $env:NETDEPLOY_WORKER_TOKEN = $workerToken
-                $env:NETDEPLOY_CODEX_WORKER_URL = 'http://127.0.0.1:8789'
-                $env:NETDEPLOY_CODEX_NATIVE_AUTO_START = '1'
-                Write-Host '[NetDeploy AI] 将在后台启动 Windows 原生 Codex（无需 Docker Desktop）。' -ForegroundColor Cyan
+                $env:VPSDEPLOY_WORKER_TOKEN = $workerToken
+                $env:VPSDEPLOY_CODEX_WORKER_URL = 'http://127.0.0.1:8789'
+                $env:VPSDEPLOY_CODEX_NATIVE_AUTO_START = '1'
+                Write-Host '[VPS Deploy Panel] 将在后台启动 Windows 原生 Codex（无需 Docker Desktop）。' -ForegroundColor Cyan
             }
         } else {
-            Write-Host '[NetDeploy AI] Codex 自动启动已关闭，VPS 控制台将照常启动。'
+            Write-Host '[VPS Deploy Panel] Codex 自动启动已关闭，VPS 控制台将照常启动。'
         }
     } catch {
         # Optional Codex setup MUST NOT prevent ordinary SSH/VPS deployment.
-        $env:NETDEPLOY_CODEX_NATIVE_AUTO_START = '0'
-        $env:NETDEPLOY_CODEX_WORKER_URL = ''
-        $env:NETDEPLOY_WORKER_TOKEN = ''
-        Write-Warning '[NetDeploy AI] Codex 初始化未完成；普通 VPS 管理功能继续运行。'
+        $env:VPSDEPLOY_CODEX_NATIVE_AUTO_START = '0'
+        $env:VPSDEPLOY_CODEX_WORKER_URL = ''
+        $env:VPSDEPLOY_WORKER_TOKEN = ''
+        Write-Warning '[VPS Deploy Panel] Codex 初始化未完成；普通 VPS 管理功能继续运行。'
     }
     # Only the trusted 127.0.0.1 listener may grant a browser local session.
     # This opt-in is never enabled by Docker/Linux startup scripts.
-    $env:NETDEPLOY_LOCAL_AUTO_LOGIN = '1'
-    $env:NETDEPLOY_DATA = Join-Path $root 'data'
-    New-Item -Path $env:NETDEPLOY_DATA -ItemType Directory -Force | Out-Null
+    $env:VPSDEPLOY_LOCAL_AUTO_LOGIN = '1'
+    $env:VPSDEPLOY_DATA = Join-Path $root 'data'
+    New-Item -Path $env:VPSDEPLOY_DATA -ItemType Directory -Force | Out-Null
 
-    Write-Host '[NetDeploy AI] 本地地址：http://127.0.0.1:8787' -ForegroundColor Green
+    Write-Host '[VPS Deploy Panel] 本地地址：http://127.0.0.1:8787' -ForegroundColor Green
     $browserJob = $null
     $loggingArgs = @()
     if ($Background) {
         # QuickStart opens the browser and redirects output to disk.
         $loggingArgs = @('--no-access-log')
     } else {
-        Write-Host '[NetDeploy AI] 服务就绪后自动打开默认浏览器；按 Ctrl+C 停止。'
+        Write-Host '[VPS Deploy Panel] 服务就绪后自动打开默认浏览器；按 Ctrl+C 停止。'
         $browserJob = Start-Job -ArgumentList 'http://127.0.0.1:8787' -ScriptBlock {
             param([string]$url)
             for ($i = 0; $i -lt 60; $i++) {
@@ -146,6 +148,6 @@ try {
         }
     }
 } catch {
-    Write-Host "[NetDeploy AI] 错误：$($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[VPS Deploy Panel] 错误：$($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }

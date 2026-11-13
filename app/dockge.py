@@ -18,7 +18,7 @@ ROOT_DIR = "/opt/netdeploy/dockge"
 SOURCE_DIR = f"{ROOT_DIR}/source"
 STACKS_DIR = "/opt/stacks"
 CONTAINER = "netdeploy-dockge-apps"
-MANAGED_MARK = f"NetDeploy managed Dockge Apps {SOURCE_SHA}"
+MANAGED_MARK = f"VPS Deploy Panel managed Dockge Apps {SOURCE_SHA}"
 
 
 CHECK = r"""set -eu
@@ -41,7 +41,7 @@ for target in /opt/netdeploy /opt/netdeploy/dockge /opt/dockge /opt/dockge-apps 
     echo 'DOCKGE_UNSAFE_SYMLINK: existing symlink, refusing to continue' >&2; exit 28;
   fi
 done
-# Old upstream Dockge, an existing fork, or any partial NetDeploy installation
+# Old upstream Dockge, an existing fork, or any partial panel installation
 # must be inspected/migrated separately; never steal another Docker stack.
 if test -e /opt/dockge || test -e /opt/dockge-apps ||
    test -e /opt/netdeploy/dockge; then
@@ -95,7 +95,7 @@ grep -Eq '"version"[[:space:]]*:[[:space:]]*"1[.]5[.]0-apps[.]1"' "$tmp/package.
 install -d -m 700 /opt/netdeploy/dockge
 mv -- "$tmp" /opt/netdeploy/dockge/source
 tmp=''
-printf '%s\n' 'NetDeploy managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
+printf '%s\n' 'VPS Deploy Panel managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
   > /opt/netdeploy/dockge/.netdeploy-managed
 chmod 600 /opt/netdeploy/dockge/.netdeploy-managed
 echo 'DOCKGE_SOURCE_READY: Dockge Apps 1.5.0-apps.1, pinned verified commit'
@@ -110,7 +110,7 @@ src="$root/source"
 test -f "$root/.netdeploy-managed" && test ! -L "$root/.netdeploy-managed" || {
   echo 'DOCKGE_MANAGED_MARKER_MISSING' >&2; exit 32;
 }
-grep -Fxq 'NetDeploy managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
+grep -Fxq 'VPS Deploy Panel managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
   "$root/.netdeploy-managed" || exit 32
 test -d "$src" && test ! -L "$src" || exit 32
 test "$(git -C "$src" rev-parse HEAD)" = '66aec693a974bd980f632f643586deab16932531' || {
@@ -127,7 +127,7 @@ if test -e /opt/stacks && test ! -d /opt/stacks; then
 fi
 install -d -m 700 "$root/data"
 if test ! -d /opt/stacks; then install -d -m 750 /opt/stacks; fi
-cat > "$root/compose.yaml" <<'NETDEPLOY_DOCKGE_APPS_COMPOSE'
+cat > "$root/compose.yaml" <<'VPSDEPLOY_DOCKGE_APPS_COMPOSE'
 services:
   dockge-apps:
     build:
@@ -145,12 +145,12 @@ services:
     environment:
       DOCKGE_STACKS_DIR: /opt/stacks
       DOCKGE_ENABLE_CONSOLE: "false"
-NETDEPLOY_DOCKGE_APPS_COMPOSE
+VPSDEPLOY_DOCKGE_APPS_COMPOSE
 chmod 600 "$root/compose.yaml"
-cat > "$root/access.conf" <<'NETDEPLOY_DOCKGE_ACCESS'
+cat > "$root/access.conf" <<'VPSDEPLOY_DOCKGE_ACCESS'
 DOCKGE_HOST_PORT=__HOST_PORT__
 DOCKGE_BIND=__HOST_BIND__
-NETDEPLOY_DOCKGE_ACCESS
+VPSDEPLOY_DOCKGE_ACCESS
 chmod 600 "$root/access.conf"
 docker compose -f "$root/compose.yaml" config -q
 # Build the actual fork source, NOT the upstream louislam/dockge application.
@@ -199,7 +199,7 @@ test "$(id -u)" = 0
 root=/opt/netdeploy/dockge
 test -f "$root/compose.yaml" && test ! -L "$root/compose.yaml" || exit 33
 test -f "$root/.netdeploy-managed" && test ! -L "$root/.netdeploy-managed" || exit 33
-grep -Fxq 'NetDeploy managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
+grep -Fxq 'VPS Deploy Panel managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
   "$root/.netdeploy-managed" || exit 33
 test "$(git -C "$root/source" rev-parse HEAD)" = '66aec693a974bd980f632f643586deab16932531' || exit 33
 docker compose -f "$root/compose.yaml" up -d --no-build
@@ -247,7 +247,7 @@ fi
 root=/opt/netdeploy/dockge
 if test -f "$root/.netdeploy-managed" &&
    test ! -L "$root/.netdeploy-managed" &&
-   grep -Fxq 'NetDeploy managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' "$root/.netdeploy-managed" &&
+   grep -Fxq 'VPS Deploy Panel managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' "$root/.netdeploy-managed" &&
    test -f "$root/compose.yaml" && test ! -L "$root/compose.yaml" &&
    test "$(git -C "$root/source" rev-parse HEAD 2>/dev/null)" = '66aec693a974bd980f632f643586deab16932531'; then
   echo 'DOCKGE_MANAGED=yes'
@@ -307,7 +307,7 @@ RECONFIGURE_CHECK = r"""set -eu
 __BINDING_GUARD__
 test "$(id -u)" = 0
 test -f /opt/netdeploy/dockge/.netdeploy-managed && test -f /opt/netdeploy/dockge/compose.yaml
-grep -Fxq 'NetDeploy managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
+grep -Fxq 'VPS Deploy Panel managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
   /opt/netdeploy/dockge/.netdeploy-managed
 test "$(docker inspect -f '{{.State.Running}}' netdeploy-dockge-apps)" = true
 dockge_local_only || {
@@ -326,7 +326,7 @@ RECONFIGURE_APPLY = r"""set -eu
 __BINDING_GUARD__
 root=/opt/netdeploy/dockge
 test "$(id -u)" = 0
-grep -Fxq 'NetDeploy managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
+grep -Fxq 'VPS Deploy Panel managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
   "$root/.netdeploy-managed" || exit 50
 dockge_local_only || exit 50
 test "$(docker inspect -f '{{.State.Running}}' netdeploy-dockge-apps)" = true || exit 50

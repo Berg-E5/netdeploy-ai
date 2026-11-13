@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 
 
-ADMIN = {"X-Admin-Token": os.environ["NETDEPLOY_ADMIN_TOKEN"]}
+ADMIN = {"X-Admin-Token": os.environ["VPSDEPLOY_ADMIN_TOKEN"]}
 WORKER_TOKEN = "test-worker-token-" + "w" * 32
 WORKER = {"X-Worker-Token": WORKER_TOKEN}
 
@@ -40,8 +40,8 @@ def test_codex_admin_routes_are_protected_and_use_worker_proxy(monkeypatch):
 
 def test_proxy_never_forwards_arbitrary_url_or_exposes_token(monkeypatch):
     from app import ai
-    monkeypatch.setenv("NETDEPLOY_CODEX_WORKER_URL", "http://codex-worker:8788")
-    monkeypatch.setenv("NETDEPLOY_WORKER_TOKEN", WORKER_TOKEN)
+    monkeypatch.setenv("VPSDEPLOY_CODEX_WORKER_URL", "http://codex-worker:8788")
+    monkeypatch.setenv("VPSDEPLOY_WORKER_TOKEN", WORKER_TOKEN)
     calls = []
     options = []
     class FakeClient:
@@ -111,7 +111,7 @@ class FakeCodex:
 
 
 def _worker_client(monkeypatch):
-    monkeypatch.setenv("NETDEPLOY_WORKER_TOKEN", WORKER_TOKEN)
+    monkeypatch.setenv("VPSDEPLOY_WORKER_TOKEN", WORKER_TOKEN)
     FakeCodex.logged_in = False
     FakeCodex.handle = None
     FakeCodex.runs = []

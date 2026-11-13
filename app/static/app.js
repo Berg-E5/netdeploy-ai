@@ -1,4 +1,4 @@
-/* NetDeploy AI v0.3.31 – no external JavaScript, no generated remote shell. */
+/* VPS Deploy Panel v0.3.31 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const CLIENT_VERSION = '0.3.31';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -597,7 +597,7 @@ async function showExistingDockge(id,known=null){
        row(direct?'服务器公网管理地址':'本机管理地址','dockge-url',actual,'copy-dockge-url')+
        (direct?'':row('Windows PowerShell SSH 隧道','dockge-tunnel',access.ssh_tunnel,'copy-dockge-tunnel'))+
      '</div>'+
-     '<p class="helptext">Dockge Apps 包含 Nginx Proxy Manager、IT-Tools、MyIP 应用中心，可在其中编辑应用端口；NetDeploy 不预设管理员密码。</p>'+
+     '<p class="helptext">Dockge Apps 包含 Nginx Proxy Manager、IT-Tools、MyIP 应用中心，可在其中编辑应用端口；本面板不预设管理员密码。</p>'+
      '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button>'+
        '<button class="btn subtle" data-action="dockge-config" data-id="'+id+'">修改端口与访问方式</button>'+
        '<a class="btn primary" href="'+escapeHtml(actual)+'" target="_blank" rel="noopener noreferrer">'+
@@ -992,7 +992,7 @@ function cloudFirewallHelp(){return `<details class="cloud-firewall-help">
         <a href="https://console.cloud.google.com/networking/firewalls/list" target="_blank" rel="noopener noreferrer" aria-label="打开 Google Cloud VPC 防火墙控制台">Google Cloud <span>VPC 防火墙 ↗</span></a>
         <a href="https://console.aws.amazon.com/ec2/" target="_blank" rel="noopener noreferrer" aria-label="打开 AWS EC2 控制台">AWS EC2 <span>Security Groups ↗</span></a>
       </div>
-      <p class="cloud-security-note">按实际需要添加 <strong>入站</strong> TCP/UDP 规则；SSH 与管理面板端口建议只允许你的固定管理 IP。登录状态、地域和云账号仍由各平台负责，NetDeploy 不代你修改云安全组。</p>
+      <p class="cloud-security-note">按实际需要添加 <strong>入站</strong> TCP/UDP 规则；SSH 与管理面板端口建议只允许你的固定管理 IP。登录状态、地域和云账号仍由各平台负责，本面板不代你修改云安全组。</p>
       <p class="helptext">如果登录后停留在首页：阿里云在「网络与安全 → 安全组」，AWS 在 EC2 左侧选择 Security Groups。请确认地域和实例。</p>
     </details>`;}
 
@@ -1135,7 +1135,7 @@ function editHost(id){
 }
 function deleteHost(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
- dialog(modalHead('删除 VPS 记录')+`<div class="modal-tip warning"><b>只删除 NetDeploy AI 的本地记录，不卸载 VPS 软件。</b> SSH 指纹若被其他服务器条目共用，会继续保留。关联部署任务、日志和面板快捷入口将在明确确认后删除，无法从面板恢复。</div>
+ dialog(modalHead('删除 VPS 记录')+`<div class="modal-tip warning"><b>只删除本面板的本地记录，不卸载 VPS 软件。</b> SSH 指纹若被其他服务器条目共用，会继续保留。关联部署任务、日志和面板快捷入口将在明确确认后删除，无法从面板恢复。</div>
  <p class="helptext">${escapeHtml(host.name)} · ${escapeHtml(host.hostname)}:${host.port} · ${host.job_count||0} 条部署历史</p>
  <form id="delete-host-form"><p class="helptext">点击下方删除按钮即可确认，不需要手动输入英文确认语句。</p>
  ${host.job_count?`<label class="check"><input type="checkbox" name="delete_local_history" required/> 我确认同步删除该 VPS 的 ${host.job_count} 条本地任务历史及日志（不会删除远端软件）</label>`:''}
@@ -1399,7 +1399,7 @@ function showJob(id){
  }else if(historicalHttpsFailure(job)&&!stale){
    html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧版执行记录 · 当前模板已修复</span>
      <h3>这条 HTTPS 失败记录来自旧版本脚本</h3>
-     <p>历史任务的固定命令与当前 NetDeploy AI 代码不一致，不能据此认定新版仍然失败。3X-UI 和现有证书保持不变，点击只会重新生成当前版本的 HTTPS 配置方案，不会直接重装或执行。</p>
+     <p>历史任务的固定命令与当前面板代码不一致，不能据此认定新版仍然失败。3X-UI 和现有证书保持不变，点击只会重新生成当前版本的 HTTPS 配置方案，不会直接重装或执行。</p>
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">生成最新版 HTTPS 修复方案 →</button>
    </section>`;
    html+=`<h3>原任务执行日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
@@ -1456,7 +1456,7 @@ function confirmDeleteJob(id){
  if(['queued','running'].includes(job.status)){toast('排队或执行中的任务不能删除',true);return;}
  state.activeJob=null;
  dialog(modalHead('删除本地任务记录')+
-   `<div class="modal-tip warning"><b>删除仅作用于 NetDeploy AI 的任务历史。</b>
+   `<div class="modal-tip warning"><b>删除仅作用于本面板的任务历史。</b>
    不会卸载 VPS 上已安装的软件、不会关闭远端服务，也不会清除 VPS、SSH 指纹或系统凭据库里的密码。
    删除成功后这条任务的部署日志和本地访问入口将不可恢复。若 HTTPS 升级引用了这条任务，必须先删除升级任务。</div>
    <p class="helptext">任务：${escapeHtml(job.project)} · ${escapeHtml(job.id)}（${escapeHtml(stateText(job.status))}）</p>
@@ -1520,7 +1520,7 @@ function hiddifyAdminLink(id){
 }
 async function diagnoseJob(id){
  const target=el('#ai-response');if(!target)return;
- target.innerHTML='<div class="modal-tip">Codex 正在进行只读分析。诊断日志将发送给 Codex；AI 不会获得 NetDeploy 提供的 SSH 凭据或远程部署权限。</div>';
+ target.innerHTML='<div class="modal-tip">Codex 正在进行只读分析。诊断日志将发送给 Codex；AI 不会获得本面板提供的 SSH 凭据或远程部署权限。</div>';
  try{const res=await api(`/jobs/${id}/diagnose`,{method:'POST'});target.innerHTML='<h3>Codex 诊断建议</h3><pre class="pre">'+escapeHtml(res.message)+'</pre>';}
  catch(err){target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';}
 }
@@ -1591,7 +1591,7 @@ async function refreshCodexSettings(){
          '自动启动尚未成功：'+escapeHtml(status.startup_message||'请检查 Windows 原生 Codex SDK 的初始化。'):
          status.startup_state==='ready'?
            '本机 Codex Worker 已启动，但当前无法读取 ChatGPT 登录状态。请稍后重新检查，必要时重新运行 QuickStart。':
-           'Codex Worker 尚未运行。Windows 上请双击 QuickStart-NetDeploy.bat，首次自动安装原生 Codex SDK，无需 Docker。Docker/NAS 可运行 docker compose --profile ai up -d --build。';
+           'Codex Worker 尚未运行。Windows 上请双击 QuickStart-VPSDeployPanel.bat，首次自动安装原生 Codex SDK，无需 Docker。Docker/NAS 可运行 docker compose --profile ai up -d --build。';
        content='<div class="modal-tip warning">'+detail+' 普通 VPS 管理和部署功能不受影响。</div>'+
          '<div class="modal-actions"><button class="btn subtle" data-action="codex-refresh">重新检查</button></div>';
      }
@@ -1607,7 +1607,7 @@ async function refreshCodexSettings(){
        '<div class="modal-actions">'+(link?'<a class="btn primary" target="_blank" rel="noopener noreferrer" href="'+link+'">打开 ChatGPT 授权页面 ↗</a>':'<span class="modal-tip warning">验证地址无效，请取消并重新发起</span>')+'<button class="btn subtle" data-action="codex-refresh">检查授权结果</button><button class="btn ghost" data-action="codex-cancel">取消连接</button></div>'+
        '<p class="helptext">页面会自动检查连接状态。若设备码授权不可用，请先在 ChatGPT 账号安全设置启用设备代码登录。</p>';
    }else{
-     content='<div class="modal-tip">尚未连接 ChatGPT 账号。点击按钮后将生成官方设备码；使用你自己的 ChatGPT 账号授权，无需在 NetDeploy 中填写 ChatGPT 密码或 API Key。</div>'+
+     content='<div class="modal-tip">尚未连接 ChatGPT 账号。点击按钮后将生成官方设备码；使用你自己的 ChatGPT 账号授权，无需在本面板中填写 ChatGPT 密码或 API Key。</div>'+
        (status.auth_type==='other'?'<p class="helptext">当前检测到其他授权方式。使用订阅额度需要切换为 ChatGPT 登录。</p>':'')+
        (status.error?'<div class="modal-tip warning">'+escapeHtml(status.error)+'</div>':'')+
        '<div class="modal-actions"><button class="btn primary" data-action="codex-connect">使用 ChatGPT 账号连接 Codex</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';
@@ -1754,7 +1754,7 @@ async function copyXuiField(field,label){
  catch{toast('无法访问系统剪贴板，请手动复制',true);}
 }
 async function xuiAccess(id){
- dialog(modalHead('3X-UI 安全登录')+'<p class="helptext">正在从 VPS 读取账号和地址；不会将密码写入 NetDeploy 数据库或任务日志。</p>');
+ dialog(modalHead('3X-UI 安全登录')+'<p class="helptext">正在从 VPS 读取账号和地址；不会将密码写入本面板数据库或任务日志。</p>');
  try{
    const res=await api(`/jobs/${id}/access`);
    const url=res.direct_url||res.local_url;
@@ -1776,7 +1776,7 @@ async function xuiAccess(id){
 function go(section){state.section=section;renderSection();const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;window.scrollTo({top:0,behavior:reduced?'auto':'smooth'});}
 async function tryLocalLogin(){
  try {
-   const response=await fetch('/api/local-session',{cache:'no-store',headers:{'X-NetDeploy-Local':'1'}});
+   const response=await fetch('/api/local-session',{cache:'no-store',headers:{'X-VPSDeploy-Local':'1'}});
    if(!response.ok)return false;
    const result=await response.json();
    if(typeof result.token!=='string'||result.token.length<24)return false;

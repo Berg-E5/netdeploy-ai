@@ -39,7 +39,7 @@ class DocsTests(unittest.TestCase):
             self.assertIn('lang="zh-CN"', source)
             self.assertIn('id="sidebar"', source)
             self.assertIn(page["description"], source)
-            self.assertIn("NetDeploy AI", source)
+            self.assertIn("VPS Deploy Panel", source)
 
     def test_complete_navigation_and_search_targets(self):
         records = json.loads((self.output / "search-index.json").read_text(encoding="utf-8"))
@@ -47,7 +47,7 @@ class DocsTests(unittest.TestCase):
         self.assertTrue(any("root" in entry["text"].lower() for entry in records))
         self.assertTrue(any("防火墙" in entry["text"] for entry in records))
         builder.validate(self.output)
-        self.assertIn("https://slobys.github.io/netdeploy-ai/",
+        self.assertIn("https://berg-e5.github.io/netdeploy-ai/",
                       (self.output / "index.html").read_text(encoding="utf-8"))
 
     def test_reject_broken_or_unsafe_links(self):
@@ -114,13 +114,13 @@ class DocsTests(unittest.TestCase):
     def test_version_and_app_help_link(self):
         source = (PROJECT / "app" / "main.py").read_text(encoding="utf-8")
         match = re.search(
-            r'FastAPI\(title="NetDeploy AI", version="([^"]+)"'
+            r'FastAPI\(title="VPS Deploy Panel", version="([^"]+)"'
             r'(?:,\s*lifespan=[a-zA-Z_][a-zA-Z0-9_]*)?\)', source
         )
         self.assertIsNotNone(match)
         self.assertEqual(self.config["version"], match.group(1))
         panel = (PROJECT / "app" / "static" / "index.html").read_text(encoding="utf-8")
-        self.assertIn('https://slobys.github.io/netdeploy-ai/', panel)
+        self.assertIn('https://berg-e5.github.io/netdeploy-ai/', panel)
 
 
 if __name__ == "__main__":

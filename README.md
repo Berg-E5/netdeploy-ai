@@ -1,16 +1,26 @@
-# NetDeploy AI
+# VPS Deploy Panel
 
-**一个用网页管理 VPS、快速部署常用开源项目的小工具。**
+**用网页管理 VPS、部署自己项目的工具。**
 
-添加服务器、检查 SSH 连接、选择软件、确认部署，整个过程都可以在浏览器中完成。
+添加服务器、核对 SSH 指纹、检查环境、生成部署方案、审批执行 —— 全程在浏览器里完成。
 
 > **当前为 Alpha 测试版**，请先在可以备份或重装的 VPS 上试用。
 
-[📖 在线使用文档](https://slobys.github.io/netdeploy-ai/) · [🚀 安装教程](https://slobys.github.io/netdeploy-ai/installation.html) · [❓ 常见问题](https://slobys.github.io/netdeploy-ai/troubleshooting.html) · [💬 反馈问题](https://github.com/slobys/netdeploy-ai/issues)
+[📖 在线使用文档](https://berg-e5.github.io/netdeploy-ai/) · [🚀 安装教程](https://berg-e5.github.io/netdeploy-ai/installation.html) · [❓ 常见问题](https://berg-e5.github.io/netdeploy-ai/troubleshooting.html) · [💬 反馈问题](https://github.com/Berg-E5/netdeploy-ai/issues)
 
-> **本仓库是 [slobys/netdeploy-ai](https://github.com/slobys/netdeploy-ai) 的衍生版本**（上游 MIT 协议，原作者声明保留在 `LICENSE`）。
-> 在上游基础上新增了 **物流报价系统** 和 **音乐解锁工具** 两个自建项目，并修掉了 Windows 下 SSH 执行、nginx 自启、验收判定等几个实际问题。
-> 上游自带的 11 个项目全部保留可用。
+## 我的项目
+
+| 项目 | 源码 | 部署内容 |
+| --- | --- | --- |
+| **物流报价系统** | [Berg-E5/logistics-quote](https://github.com/Berg-E5/logistics-quote) | systemd 单元 + nginx 反代 + 可选证书；装完是空站，需后台上传报价表才有价格 |
+| **音乐解锁工具** | [Berg-E5/music-unlock](https://github.com/Berg-E5/music-unlock) | 静态文件 + nginx 反代 + 可选证书；解密在浏览器里跑，文件不上传 |
+
+两个项目排在首页最前面，部署流程和下面其它项目完全一致 —— 详见 [自建项目：物流报价系统 / 音乐解锁工具](#自建项目物流报价系统--音乐解锁工具)。
+
+## 通用项目
+
+面板也内置了一批常用开源项目：3X-UI、S-UI、sing-box、Hysteria2、wg-easy、Dockge Apps、Hiddify Manager。
+
 
 ## 主要功能
 
@@ -21,7 +31,7 @@
 - **自定义界面**：多种主题颜色、明暗模式和阅读字号。
 - **Codex AI（可选）**：使用自己的 ChatGPT 账号，通过自然语言查询任务、打开面板页面、生成待审批部署方案或分析安装日志，无需另填 API Key。
 
-## 支持的项目
+## 内置的通用项目
 
 | 项目 | 当前支持情况 |
 | --- | --- |
@@ -32,8 +42,6 @@
 | **[Dockge Apps](https://github.com/slobys/dockge-apps)** | 二开应用中心（NPM、IT-Tools、MyIP）；缺 Docker 可使用官方一键脚本，管理端口随机或自定义；新安装默认公网 IP 直连，执行前需确认风险 |
 | **Hysteria2** | 提供部署引导，暂不支持一键安装 |
 | **Hiddify Manager** | 专用 Ubuntu VPS 上审批执行官网一键安装（Beta），在任务中打开管理面板完成官方快速设置 |
-| **物流报价系统**（自建） | 固定 commit 下载 → 校验 SHA-256 → 装 systemd 单元 + nginx 反代 + 可选证书；装完是空站，需后台上传报价表才有价格 |
-| **音乐解锁工具**（自建） | 固定 commit 下载 → 校验 SHA-256 → 拷静态文件 + nginx 反代 + 可选证书；纯静态站，解密在浏览器里跑，文件不上传 |
 
 ## 自建项目：物流报价系统 / 音乐解锁工具
 
@@ -129,26 +137,26 @@ Windows 上 `core.autocrlf=true` 时工作区是 CRLF、索引里是 LF，
 打开 **PowerShell**，依次执行：
 
 ```powershell
-git clone https://github.com/slobys/netdeploy-ai.git
+git clone https://github.com/Berg-E5/netdeploy-ai.git
 cd netdeploy-ai
-.\QuickStart-NetDeploy.bat
+.\QuickStart-VPSDeployPanel.bat
 ```
 
 启动后在浏览器访问 **http://127.0.0.1:8787**。Windows 本机模式首次启动可自动登录。
 
-**以后启动或更新：** 双击项目文件夹中的 `QuickStart-NetDeploy.bat`。面板正在运行时会直接打开网页。停止面板后再次双击会检查更新、备份本地数据并在后台启动。需要在终端查看输出或用 `Ctrl+C` 停止时，可单独运行 `Start-NetDeploy.bat`。
+**以后启动或更新：** 双击项目文件夹中的 `QuickStart-VPSDeployPanel.bat`。面板正在运行时会直接打开网页。停止面板后再次双击会检查更新、备份本地数据并在后台启动。需要在终端查看输出或用 `Ctrl+C` 停止时，可单独运行 `Start-VPSDeployPanel.bat`。
 
 ## 使用 ChatGPT 订阅连接 Codex（可选）
 
-**Windows 默认原生模式（无需 Docker）**：只需安装 Git 和 Python。运行 `QuickStart-NetDeploy.bat` 后，后台自动创建专用 Python 环境并安装官方 Codex SDK，**不启动 Docker Desktop、WSL 或 Codex 桌面软件**。首次下载 SDK 的 Windows 运行组件可能需要一些时间，后台「Codex AI」可显示进度。连接自己的 ChatGPT 账号并完成首次设备码授权后，正常重启会复用登录状态（登录失效时需重新授权）。
+**Windows 默认原生模式（无需 Docker）**：只需安装 Git 和 Python。运行 `QuickStart-VPSDeployPanel.bat` 后，后台自动创建专用 Python 环境并安装官方 Codex SDK，**不启动 Docker Desktop、WSL 或 Codex 桌面软件**。首次下载 SDK 的 Windows 运行组件可能需要一些时间，后台「Codex AI」可显示进度。连接自己的 ChatGPT 账号并完成首次设备码授权后，正常重启会复用登录状态（登录失效时需重新授权）。
 
 旧的 `Enable-Codex-Windows.bat` 入口也会进入原生启动流程。请用普通 Windows 用户权限启动面板。
 
-原生 Worker 仅监听 `127.0.0.1:8789`，使用 `%LOCALAPPDATA%\NetDeployAI\codex-native` 下的独立工作区、SDK 环境与登录目录；不会把 NetDeploy 的 SSH 密码、管理员令牌或数据库路径传给 Worker。Windows 原生沙箱开启 `prefer_mxc`，只读诊断禁止提权审批；**但同一 Windows 用户下的进程隔离不等于 Docker / 独立用户的强隔离**。请在可信的本机使用，不要把后台公开到互联网。
+原生 Worker 仅监听 `127.0.0.1:8789`，使用 `%LOCALAPPDATA%\VPSDeployPanel\codex-native` 下的独立工作区、SDK 环境与登录目录；不会把面板的 SSH 密码、管理员令牌或数据库路径传给 Worker。Windows 原生沙箱开启 `prefer_mxc`，只读诊断禁止提权审批；**但同一 Windows 用户下的进程隔离不等于 Docker / 独立用户的强隔离**。请在可信的本机使用，不要把后台公开到互联网。
 
-如需关闭自动启动，在本机 `.env` 添加 `NETDEPLOY_CODEX_AUTO_START=0`；不影响其他 VPS 管理功能。之前安装的 Docker 版 Worker 不会被自动卸载或清除数据，但 Windows 默认不再调用它。
+如需关闭自动启动，在本机 `.env` 添加 `VPSDEPLOY_CODEX_AUTO_START=0`；不影响其他 VPS 管理功能。之前安装的 Docker 版 Worker 不会被自动卸载或清除数据，但 Windows 默认不再调用它。
 
-**Docker / NAS 启动**：在项目私有 `.env` 中设置至少 24 位随机 `NETDEPLOY_WORKER_TOKEN`（与管理员令牌不同），然后运行 `docker compose --profile ai up -d --build`。现有主程序不会把 SSH 密钥、数据库或 Docker Socket 挂载进 AI Worker。
+**Docker / NAS 启动**：在项目私有 `.env` 中设置至少 24 位随机 `VPSDEPLOY_WORKER_TOKEN`（与管理员令牌不同），然后运行 `docker compose --profile ai up -d --build`。现有主程序不会把 SSH 密钥、数据库或 Docker Socket 挂载进 AI Worker。
 
 进入后台左侧 **Codex AI** → **使用 ChatGPT 账号连接**，在浏览器打开官方验证页并输入一次性设备代码。设备码登录需要在 ChatGPT 安全设置中启用。授权后，可以输入「最近哪些部署失败了」或「为东京 VPS 生成 S-UI 部署方案」。使用面板中的 VPS 完整名称和项目名称，面板会自动只读预检并打开方案，由你审阅后确认执行。自动方案中的 3X-UI、S-UI 和 Dockge Apps 采用 SSH 隧道访问。自定义端口、证书或公网模式可打开部署向导设置。查看具体安装失败原因时，可以在对应任务中点击 **AI 只读排障**。
 
@@ -161,14 +169,29 @@ cd netdeploy-ai
 3. 打开 **项目中心**，选择要安装的软件。
 4. 查看安装方案、确认执行，最后查看结果。
 
-Docker / NAS 用户可参考 [Docker 部署教程](https://slobys.github.io/netdeploy-ai/installation.html#docker)。各项目的具体要求见 [部署文档](https://slobys.github.io/netdeploy-ai/deployments.html)。
+Docker / NAS 用户可参考 [Docker 部署教程](https://berg-e5.github.io/netdeploy-ai/installation.html#docker)。各项目的具体要求见 [部署文档](https://berg-e5.github.io/netdeploy-ai/deployments.html)。
 
 ## 使用前请注意
 
 - 安装任务需要相应的系统权限；部分项目要求 Debian / Ubuntu、Docker 或指定端口。
-- NetDeploy 控制台默认只供本机访问，**不要把管理端口直接暴露到公网**。
+- 本面板默认只供本机访问，**不要把管理端口直接暴露到公网**。
 - SSH 主机指纹必须通过可信渠道核对；证书签发还需正确的 IP / 域名及防火墙规则。
 - 项目尚在测试阶段，自动化测试通过不等于所有 VPS 环境都已实机验收。
+
+## 开源协议与致谢
+
+本项目基于 **[slobys/netdeploy-ai](https://github.com/slobys/netdeploy-ai)** 开发（上游 MIT 协议），
+原作者版权声明与许可全文保留在 [LICENSE](LICENSE)。
+
+在上游基础上，我做了这些改动：
+
+- 新增 **物流报价系统** 和 **音乐解锁工具** 两个自建项目，排在首页最前。
+- 修掉 Windows 下没有可用 OpenSSH 客户端时 SSH 执行失败（改走 Paramiko 密钥认证）。
+- 修掉安装脚本只 `reload` nginx 导致「装了但没启动」时站点打不开（改为 `enable` + `restart` 并确认在运行）。
+- 验收从「只看 `nginx -t`」改为「确认 nginx 在跑 + 带 Host 头真实请求自己的 vhost」。
+- 安装脚本端口改为自动挑选并写入 `data/port`，重装时沿用原端口不再漂移。
+- 收紧域名校验（连续点、段首段尾横线、单段超 63 字符）。
+- 品牌与文档改为本项目自己的版本。
 
 **开源协议：** [MIT License](LICENSE)
 

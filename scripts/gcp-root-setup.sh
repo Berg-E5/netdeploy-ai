@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# NetDeploy AI · interactive Google Cloud / Debian / Ubuntu root password helper.
+# VPS Deploy Panel · interactive Google Cloud / Debian / Ubuntu root password helper.
 # Never embed, log, transmit, or accept a password via command-line arguments.
 set -euo pipefail
 umask 077
 
 usage() {
   cat <<'HELP'
-NetDeploy AI · GCP root access helper (run from Google Cloud native SSH / serial console)
+VPS Deploy Panel · GCP root access helper (run from Google Cloud native SSH / serial console)
 Usage:
   sudo bash scripts/gcp-root-setup.sh --password-only
   sudo bash scripts/gcp-root-setup.sh --enable-root-password-ssh
@@ -23,7 +23,7 @@ Default / --password-only:
 HELP
 }
 
-die() { printf '[NetDeploy] %s\n' "$*" >&2; exit 1; }
+die() { printf '[VPS Deploy Panel] %s\n' "$*" >&2; exit 1; }
 
 mode="--password-only"
 if [ "$#" -gt 0 ]; then mode="$1"; fi
@@ -67,17 +67,17 @@ if [ "$mode" = enable ]; then
   [ -n "$sshd_bin" ] || die "找不到 sshd，拒绝修改认证配置"
   command -v systemctl >/dev/null 2>&1 || die "没有 systemctl，拒绝自动变更"
   conf=/etc/ssh/sshd_config.d/00-netdeploy-root-password.conf
-  [ ! -e "$conf" ] && [ ! -L "$conf" ] || die "已有 NetDeploy 的 SSH 配置文件；请人工检查，不覆盖"
+  [ ! -e "$conf" ] && [ ! -L "$conf" ] || die "已有本面板的 SSH 配置文件；请人工检查，不覆盖"
   echo
   echo "仅在你已确认云防火墙限制与恢复方式后继续。"
   read -r -p '输入 ENABLE ROOT PASSWORD SSH 继续（其他输入取消）：' confirmation
   [ "$confirmation" = 'ENABLE ROOT PASSWORD SSH' ] || die "操作已取消，没有修改 SSH 配置"
 fi
 
-echo "[NetDeploy] 使用 passwd 交互设置 root 的新密码，不在命令、历史或日志中保存明文。"
+echo "[VPS Deploy Panel] 使用 passwd 交互设置 root 的新密码，不在命令、历史或日志中保存明文。"
 passwd root || die "root 密码设置失败"
 if [ "$mode" = password ]; then
-  echo "[NetDeploy] root 本地密码已更新。SSH 登录策略未更改，也没有自动重启 VPS。"
+  echo "[VPS Deploy Panel] root 本地密码已更新。SSH 登录策略未更改，也没有自动重启 VPS。"
   exit 0
 fi
 
@@ -96,7 +96,7 @@ rollback() {
 pending=yes
 trap 'if [ "$pending" = yes ]; then rollback; fi' EXIT
 cat >"$conf" <<'CONFIG'
-# NetDeploy AI: explicitly approved password-based root SSH; avoid on public VPS.
+# VPS Deploy Panel: explicitly approved password-based root SSH; avoid on public VPS.
 PermitRootLogin yes
 PasswordAuthentication yes
 CONFIG
@@ -119,8 +119,8 @@ fi
 pending=no
 trap - EXIT
 
-echo "[NetDeploy] root SSH 密码认证已修改，sshd -t 与有效配置检查通过，未重启 VPS。"
-echo "[NetDeploy] 当前云控制台 / SSH 会话保持打开，另开终端从已许可的管理 IP 测试 root SSH。"
-echo "[NetDeploy] 如果不能登录，使用云终端执行：rm -f $conf && systemctl reload ssh"
-echo "[NetDeploy] sshd_config 备份位于：$backup"
-echo "[NetDeploy] 完成测试后建议改回 SSH 密钥 / OS Login，并重新关闭 root 密码 SSH。"
+echo "[VPS Deploy Panel] root SSH 密码认证已修改，sshd -t 与有效配置检查通过，未重启 VPS。"
+echo "[VPS Deploy Panel] 当前云控制台 / SSH 会话保持打开，另开终端从已许可的管理 IP 测试 root SSH。"
+echo "[VPS Deploy Panel] 如果不能登录，使用云终端执行：rm -f $conf && systemctl reload ssh"
+echo "[VPS Deploy Panel] sshd_config 备份位于：$backup"
+echo "[VPS Deploy Panel] 完成测试后建议改回 SSH 密钥 / OS Login，并重新关闭 root 密码 SSH。"

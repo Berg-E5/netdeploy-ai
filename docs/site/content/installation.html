@@ -1,4 +1,4 @@
-<div class="callout success"><strong>推荐方式：Windows 11 本机运行</strong><p>NetDeploy 是在你自己的电脑上打开的 Web 管理面板，默认访问地址为 <code>http://127.0.0.1:8787</code>。你的 VPS 不需要安装 NetDeploy 本体。</p></div>
+<div class="callout success"><strong>推荐方式：Windows 11 本机运行</strong><p>本面板是在你自己的电脑上打开的 Web 管理面板，默认访问地址为 <code>http://127.0.0.1:8787</code>。你的 VPS 不需要安装本面板 本体。</p></div>
 <h2 id="requirements">安装前准备</h2>
 <ul>
   <li>电脑：Windows 11，能访问 GitHub。</li>
@@ -7,28 +7,28 @@
 </ul>
 <h2 id="one-command">一条命令安装与启动</h2>
 <p>打开 <strong>Windows PowerShell</strong>，复制以下整行。脚本会在桌面创建或复用 <code>netdeploy-ai-git</code> 目录，检查 GitHub 来源、更新代码、安装依赖，再启动面板。</p>
-<pre><code>$repo=Join-Path ([Environment]::GetFolderPath('Desktop')) 'netdeploy-ai-git'; if(-not(Test-Path $repo)){git clone https://github.com/slobys/netdeploy-ai.git $repo; if($LASTEXITCODE -ne 0){throw 'Git clone failed'}}; $start=Join-Path $repo 'scripts\QuickStart-Windows.ps1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $start</code></pre>
+<pre><code>$repo=Join-Path ([Environment]::GetFolderPath('Desktop')) 'netdeploy-ai-git'; if(-not(Test-Path $repo)){git clone https://github.com/Berg-E5/netdeploy-ai.git $repo; if($LASTEXITCODE -ne 0){throw 'Git clone failed'}}; $start=Join-Path $repo 'scripts\QuickStart-Windows.ps1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $start</code></pre>
 <p>启动成功后，浏览器通常会自动打开 <code>http://127.0.0.1:8787</code>。桌面出现的 <code>netdeploy-ai-git</code> 是本机工作目录，不是 VPS 数据目录。</p>
 <div class="callout"><strong>首次启动不需要手填面板令牌</strong><p>Windows 单机快捷启动可自动创建本机管理员令牌并启用环回地址自动登录；VPS SSH 密码仍必须单独提供。</p></div>
 <h2 id="start-again">以后怎么重新打开？</h2>
 <ol>
 <li>进入桌面 <code>netdeploy-ai-git</code>。</li>
-<li>双击 <code>QuickStart-NetDeploy.bat</code>。面板已运行时直接打开网页，停止后双击则检查更新并在后台启动。</li>
+<li>双击 <code>QuickStart-VPSDeployPanel.bat</code>。面板已运行时直接打开网页，停止后双击则检查更新并在后台启动。</li>
 <li>若提示 <code>8787</code> 已被占用，先到旧的 PowerShell 服务窗口按 <code>Ctrl+C</code> 停止，再重新启动；不要用两个进程同时操作同一数据库。</li>
 </ol>
 <h2 id="update">更新软件，不丢原有数据</h2>
-<p>推荐先停止旧服务，再双击 <code>QuickStart-NetDeploy.bat</code>；也可运行 <code>Update-NetDeploy.bat</code> 更新后用 <code>Start-NetDeploy.bat</code> 启动。更新器会保留原有的本地配置、任务数据库、可信 SSH 主机密钥，并对本地数据执行备份。</p>
+<p>推荐先停止旧服务，再双击 <code>QuickStart-VPSDeployPanel.bat</code>；也可运行 <code>Update-VPSDeployPanel.bat</code> 更新后用 <code>Start-VPSDeployPanel.bat</code> 启动。更新器会保留原有的本地配置、任务数据库、可信 SSH 主机密钥，并对本地数据执行备份。</p>
 <p>更新后在浏览器按 <code>Ctrl+F5</code> 强制刷新。右上角版本号与 <code>/api/health</code> 返回的版本应一致；否则可能仍在运行旧进程。</p>
 <h2 id="docker">Docker / NAS 用户</h2>
 <p>适合熟悉 Docker 的用户。需要 Docker Engine、Docker Compose v2 和可以写入数据目录的权限。管理页面默认仅映射到宿主机 <code>127.0.0.1:8787</code>，<strong>不要直接映射到公网</strong>。</p>
 <ol>
 <li>下载项目并准备本地配置：</li>
 </ol>
-<pre><code>git clone https://github.com/slobys/netdeploy-ai.git
+<pre><code>git clone https://github.com/Berg-E5/netdeploy-ai.git
 cd netdeploy-ai
 mkdir -p data secrets
 cp .env.example .env</code></pre>
-<p>编辑 <code>.env</code>，把 <code>NETDEPLOY_ADMIN_TOKEN</code> 和 <code>NETDEPLOY_WORKER_TOKEN</code> 的示例占位值分别改成<strong>两段不同的强随机令牌</strong>。可执行 <code>openssl rand -hex 32</code> 两次来生成，不要把令牌提交到 GitHub。</p>
+<p>编辑 <code>.env</code>，把 <code>VPSDEPLOY_ADMIN_TOKEN</code> 和 <code>VPSDEPLOY_WORKER_TOKEN</code> 的示例占位值分别改成<strong>两段不同的强随机令牌</strong>。可执行 <code>openssl rand -hex 32</code> 两次来生成，不要把令牌提交到 GitHub。</p>
 <pre><code># 容器使用 UID 10001 写入 data 目录
 sudo chown -R 10001:10001 data
 sudo docker compose up -d --build</code></pre>

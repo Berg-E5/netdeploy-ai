@@ -2,7 +2,7 @@
 
 Do NOT run upstream's interactive install.sh: it downloads "latest", may
 replace sing-box and defaults to a publicly bound plaintext web panel.
-NetDeploy uses an immutable GitHub release asset with upstream SHA-256,
+The panel uses an immutable GitHub release asset with upstream SHA-256,
 creates random credentials and loopback-only listeners *before* starting.
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ INSTALL_ROOT = "/usr/local/s-ui"
 RESULT_FILE = "/var/lib/netdeploy/s-ui/install-result.env"
 
 SERVICE_UNIT = """[Unit]
-Description=NetDeploy s-ui Service (pinned 1.6.6)
+Description=VPS Deploy Panel s-ui Service (pinned 1.6.6)
 After=network.target
 Wants=network.target
 
@@ -248,9 +248,9 @@ test ! -e "$record"
  printf 'SUI_PASSWORD=%s\n' "$password"
 } > "$record"
 chmod 600 "$record"
-cat > /etc/systemd/system/s-ui.service <<'NETDEPLOY_SUI_SERVICE'
+cat > /etc/systemd/system/s-ui.service <<'VPSDEPLOY_SUI_SERVICE'
 __SERVICE_UNIT__
-NETDEPLOY_SUI_SERVICE
+VPSDEPLOY_SUI_SERVICE
 chmod 644 /etc/systemd/system/s-ui.service
 systemctl daemon-reload
 echo 'SUI_CONFIGURED: random admin, private web path and localhost-only listeners; secrets kept on VPS'

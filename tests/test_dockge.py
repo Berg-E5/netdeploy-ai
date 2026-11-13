@@ -1,4 +1,4 @@
-"""NetDeploy Dockge integration: immutable plan, safe port bind, read-only status.
+"""Dockge integration: immutable plan, safe port bind, read-only status.
 
 No real VPS, Docker daemon, registry or SSH credentials involved.
 """

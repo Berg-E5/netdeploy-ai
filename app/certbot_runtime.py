@@ -1,7 +1,7 @@
 """Isolated Certbot for Let's Encrypt short-lived public IPv4 certificates.
 
 The distro's apt Certbot 4.x can remain installed and continue renewing
-unrelated certificates. NetDeploy IP certificates use a separate venv,
+unrelated certificates. Panel IP certificates use a separate venv,
 config/renewal tree and dedicated 4-hour systemd timer. Domain certificates
 continue to use the existing OS Certbot installation.
 """
@@ -65,11 +65,11 @@ for target in "$base" "$venv" "$client" "$config" "$work" "$logs" "$service" "$t
     fi
 done
 if test -e "$base" && ! test -f "$base/.netdeploy-managed"; then
-    echo 'ND_CERTBOT_DIR_CONFLICT: reserved /opt directory is not NetDeploy-managed' >&2; exit 35
+    echo 'ND_CERTBOT_DIR_CONFLICT: reserved /opt directory is not panel-managed' >&2; exit 35
 fi
 for unit in "$service" "$timer"; do
-    if test -e "$unit" && ! grep -Fxq '# NetDeploy managed isolated IP Certbot' "$unit"; then
-        echo 'ND_CERTBOT_UNIT_CONFLICT: existing renewal service not owned by NetDeploy' >&2; exit 35
+    if test -e "$unit" && ! grep -Fxq '# VPS Deploy Panel managed isolated IP Certbot' "$unit"; then
+        echo 'ND_CERTBOT_UNIT_CONFLICT: existing renewal service not owned by the panel' >&2; exit 35
     fi
 done
 
@@ -78,7 +78,7 @@ ready=no
 if test -x "$client" && "$client" --help all 2>/dev/null | grep -Fq -- '--ip-address' &&
    "$client" --help all 2>/dev/null | grep -Fq -- '--preferred-profile'; then
     ready=yes
-    echo 'NETDEPLOY_CERTBOT_READY: isolated IP-capable Certbot already present'
+    echo 'VPSDEPLOY_CERTBOT_READY: isolated IP-capable Certbot already present'
 fi
 if test "$ready" = no; then
     # Debian 13's apt certbot 4.0.0 is too old. Its package remains untouched.
@@ -123,9 +123,9 @@ for target in /etc/netdeploy /var/lib/netdeploy /var/log/netdeploy; do
 done
 install -d -m 700 "$config" "$work" "$logs"
 cat > "$service" <<'UNIT'
-# NetDeploy managed isolated IP Certbot
+# VPS Deploy Panel managed isolated IP Certbot
 [Unit]
-Description=NetDeploy isolated IP certificate renewal (separate from OS Certbot)
+Description=VPS Deploy Panel isolated IP certificate renewal (separate from OS Certbot)
 Documentation=https://certbot.eff.org/
 
 [Service]
@@ -133,9 +133,9 @@ Type=oneshot
 ExecStart=__CLIENT__ renew --non-interactive --quiet --config-dir __CONFIG__ --work-dir __WORK__ --logs-dir __LOGS__
 UNIT
 cat > "$timer" <<'TIMER'
-# NetDeploy managed isolated IP Certbot
+# VPS Deploy Panel managed isolated IP Certbot
 [Unit]
-Description=Renew NetDeploy short-lived IP certificates every four hours
+Description=Renew panel short-lived IP certificates every four hours
 
 [Timer]
 OnCalendar=*-*-* 00,04,08,12,16,20:15:00
@@ -153,7 +153,7 @@ systemctl list-unit-files --no-legend netdeploy-certbot-renew.timer |
     grep -q '^netdeploy-certbot-renew[.]timer' || {
     echo 'ND_CERTBOT_TIMER_MISSING: isolated renewal timer not installed' >&2; exit 33;
 }
-echo 'NETDEPLOY_CERTBOT_READY: dedicated Certbot 5.3+ supports public IP certificates; separate renewal timer configured'
+echo 'VPSDEPLOY_CERTBOT_READY: dedicated Certbot 5.3+ supports public IP certificates; separate renewal timer configured'
 """
 
 for _key, _value in {

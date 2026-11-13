@@ -1,4 +1,4 @@
-"""NetDeploy AI API, single-admin prototype. Do not expose directly to public Internet."""
+"""VPS Deploy Panel API, single-admin prototype. Do not expose directly to public Internet."""
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -43,16 +43,18 @@ from .s_ui import (PORT as SUI_PORT, STATUS as SUI_STATUS_SCRIPT, ACCESS as SUI_
 from .dockge import (PORT as DOCKGE_PORT, STATUS as DOCKGE_STATUS_SCRIPT,
                      parse_status as parse_dockge_status, local_access as dockge_local_access)
 
-BASE = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("NETDEPLOY_DATA", str(BASE.parent / "data")))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-ADMIN_TOKEN = os.getenv("NETDEPLOY_ADMIN_TOKEN", "")
-if len(ADMIN_TOKEN) < 24 or ADMIN_TOKEN.startswith("REPLACE_"):
-    raise RuntimeError("必须配置长度至少 24 字符的 NETDEPLOY_ADMIN_TOKEN")
+from .config import env, env_flag
 
-store = Store(str(DATA_DIR / "netdeploy.db"))
+BASE = Path(__file__).resolve().parent
+DATA_DIR = Path(env("DATA", str(BASE.parent / "data")))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+ADMIN_TOKEN = env("ADMIN_TOKEN", "")
+if len(ADMIN_TOKEN) < 24 or ADMIN_TOKEN.startswith("REPLACE_"):
+    raise RuntimeError("必须配置长度至少 24 字符的 VPSDEPLOY_ADMIN_TOKEN")
+
+store = Store(str(DATA_DIR / "vpsdeploy.db"))
 executor = SSHExecutor(SSHConfig(
-    keyfile=os.getenv("NETDEPLOY_SSH_KEY_FILE", "/run/secrets/ssh_key"),
+    keyfile=env("SSH_KEY_FILE", "/run/secrets/ssh_key"),
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
@@ -65,9 +67,9 @@ async def native_codex_lifespan(_application: FastAPI):
         stop_native_codex()
 
 
-app = FastAPI(title="NetDeploy AI", version="0.3.31",
+app = FastAPI(title="VPS Deploy Panel", version="0.3.31",
               lifespan=native_codex_lifespan)
-LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
+LOCAL_AUTO_LOGIN = env_flag("LOCAL_AUTO_LOGIN", "0")
 
 # Windows QuickStart opts into a native, dedicated Codex SDK process. Never
 # start it on Linux/NAS, Docker, or during unrelated TestClient/CI runs.
@@ -261,14 +263,14 @@ def health():
 
 
 @app.get("/api/local-session")
-def local_session(request: Request, x_netdeploy_local: str | None = Header(default=None)):
+def local_session(request: Request, x_vpsdeploy_local: str | None = Header(default=None)):
     """Opt-in auto-login for a *loopback-only* single-user Windows process.
 
     Do not expose this listener through any reverse proxy or public port.
     The caller must be local and same-origin; never put the admin token in a
     redirect, URL, HTML, cookie or server log.
     """
-    if not LOCAL_AUTO_LOGIN or x_netdeploy_local != "1":
+    if not LOCAL_AUTO_LOGIN or x_vpsdeploy_local != "1":
         raise HTTPException(status_code=403, detail="本机免登录模式未启用")
     client = request.client.host if request.client else ""
     host = request.headers.get("host", "").lower()

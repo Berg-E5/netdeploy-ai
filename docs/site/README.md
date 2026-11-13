@@ -1,12 +1,12 @@
-# NetDeploy AI · 中文在线使用文档
+# VPS Deploy Panel · 中文在线使用文档
 
-计划站点：https://slobys.github.io/netdeploy-ai/ （GitHub Pages）
+计划站点：https://berg-e5.github.io/netdeploy-ai/ （GitHub Pages）
 
 包含文档首页、安装与更新、第一次部署、VPS/SSH、端口防火墙、各项目部署、Google Cloud、故障排查、安全与限制。
 
 ## 本地预览（无需 npm）
 
-在 NetDeploy 仓库根目录执行：
+在本仓库根目录执行：
 
     python3 docs/site/build.py
     python3 -m http.server 4173 --directory .build/docs-site
@@ -27,7 +27,7 @@
 
 推送至 main 后，.github/workflows/docs.yml 将自动校验并尝试部署到 GitHub Pages。PR 只运行校验，不对外发布。
 
-首次启用需要一次手工操作：打开 GitHub 仓库 Settings → Pages → Build and deployment → Source，选择 GitHub Actions。然后在 Actions 页手动运行 NetDeploy AI online handbook 工作流，或推送一次文档更新自动触发。若 Pages 尚未启用，文档代码及构建测试仍可通过，但线上网址暂时可能不可用；在工作流部署 Job 中检查状态。
+首次启用需要一次手工操作：打开 GitHub 仓库 Settings → Pages → Build and deployment → Source，选择 GitHub Actions。然后在 Actions 页手动运行 VPS Deploy Panel online handbook 工作流，或推送一次文档更新自动触发。若 Pages 尚未启用，文档代码及构建测试仍可通过，但线上网址暂时可能不可用；在工作流部署 Job 中检查状态。
 
 不要在文档中提交 SSH 私钥、root 明文密码、管理员初始密码、真实 VPS 配置或凭据截图。Google Cloud 交互脚本不内置固定密码；高风险 SSH 密码登录须显式确认，绝不是默认启用。
 

@@ -6,11 +6,11 @@ services:
     ports:
       - '127.0.0.1:8787:8787'
     environment:
-      NETDEPLOY_ADMIN_TOKEN: ${NETDEPLOY_ADMIN_TOKEN:?Set NETDEPLOY_ADMIN_TOKEN in .env}
-      NETDEPLOY_DATA: /srv/netdeploy/data
-      NETDEPLOY_CODEX_WORKER_URL: http://codex-worker:8788
-      NETDEPLOY_WORKER_TOKEN: ${NETDEPLOY_WORKER_TOKEN:?Set NETDEPLOY_WORKER_TOKEN in .env}
-      NETDEPLOY_SSH_KEY_FILE: /run/secrets/ssh_key
+      VPSDEPLOY_ADMIN_TOKEN: ${VPSDEPLOY_ADMIN_TOKEN:-${NETDEPLOY_ADMIN_TOKEN:-}}
+      VPSDEPLOY_DATA: /srv/vpsdeploy/data
+      VPSDEPLOY_CODEX_WORKER_URL: http://codex-worker:8788
+      VPSDEPLOY_WORKER_TOKEN: ${VPSDEPLOY_WORKER_TOKEN:-${NETDEPLOY_WORKER_TOKEN:-}}
+      VPSDEPLOY_SSH_KEY_FILE: /run/secrets/ssh_key
     volumes:
       - ./data:/srv/netdeploy/data
       # Directory exists even when using password-only authentication.
@@ -31,7 +31,7 @@ services:
       context: .
       dockerfile: Dockerfile.ai
     environment:
-      NETDEPLOY_WORKER_TOKEN: ${NETDEPLOY_WORKER_TOKEN:?Set NETDEPLOY_WORKER_TOKEN in .env}
+      VPSDEPLOY_WORKER_TOKEN: ${VPSDEPLOY_WORKER_TOKEN:-${NETDEPLOY_WORKER_TOKEN:-}}
       # The user connects ChatGPT inside the panel (device authorization).
       # No API key is forwarded and no extra API billing is configured.
       CODEX_HOME: /home/agent/.codex

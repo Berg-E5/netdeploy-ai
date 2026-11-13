@@ -1,4 +1,4 @@
-/* NetDeploy AI · Theme tokens and full-surface appearance.
+/* VPS Deploy Panel · Theme tokens and full-surface appearance.
    Loaded last so the same semantic palette reaches all existing flows.
    Modern Chrome color-mix supports flexible color palettes without per-card themes. */
 :root {
@@ -71,7 +71,7 @@
   --theme-success-line: #9bd5b9;
   color-scheme: light;
 }
-/* The classic blue matches the original NetDeploy design. */
+/* The classic blue matches the original design. */
 :root[data-accent="blue"] { --theme-accent:#91bdff;--theme-action:#346aca;--theme-action-deep:#2855b1; }
 :root[data-accent="violet"] { --theme-accent:#c0a9ff;--theme-action:#7353cf;--theme-action-deep:#603cb8; }
 :root[data-accent="teal"] { --theme-accent:#69d9e4;--theme-action:#137b90;--theme-action-deep:#0c6478; }

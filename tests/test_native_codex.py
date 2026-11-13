@@ -17,11 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_native_autostart_requires_windows_and_explicit_quickstart_switch(monkeypatch):
     monkeypatch.setattr(native_codex, "sys", SimpleNamespace(platform="win32"))
-    monkeypatch.delenv("NETDEPLOY_CODEX_NATIVE_AUTO_START", raising=False)
+    monkeypatch.delenv("VPSDEPLOY_CODEX_NATIVE_AUTO_START", raising=False)
     assert native_codex.native_enabled() is False
-    monkeypatch.setenv("NETDEPLOY_CODEX_NATIVE_AUTO_START", "1")
+    monkeypatch.setenv("VPSDEPLOY_CODEX_NATIVE_AUTO_START", "1")
     assert native_codex.native_enabled() is True
-    monkeypatch.setenv("NETDEPLOY_CODEX_AUTO_START", "0")
+    monkeypatch.setenv("VPSDEPLOY_CODEX_AUTO_START", "0")
     assert native_codex.native_enabled() is False
     monkeypatch.setattr(native_codex, "sys", SimpleNamespace(platform="linux"))
     assert native_codex.native_enabled() is False
@@ -29,9 +29,9 @@ def test_native_autostart_requires_windows_and_explicit_quickstart_switch(monkey
 
 def test_native_environment_does_not_inherit_admin_ssh_api_or_docker(monkeypatch):
     for key, value in {
-        "NETDEPLOY_ADMIN_TOKEN": "must-never-leak",
-        "NETDEPLOY_SSH_KEY_FILE": "private-ssh-key",
-        "NETDEPLOY_DATA": "secret-database-folder",
+        "VPSDEPLOY_ADMIN_TOKEN": "must-never-leak",
+        "VPSDEPLOY_SSH_KEY_FILE": "private-ssh-key",
+        "VPSDEPLOY_DATA": "secret-database-folder",
         "SSH_AUTH_SOCK": "sensitive-agent",
         "OPENAI_API_KEY": "sk-secret",
         "CODEX_API_KEY": "api-billing-not-allowed",
@@ -43,8 +43,8 @@ def test_native_environment_does_not_inherit_admin_ssh_api_or_docker(monkeypatch
     }.items():
         monkeypatch.setenv(key, value)
     env = native_codex.NativeCodexManager._env()
-    for key in ("NETDEPLOY_ADMIN_TOKEN", "NETDEPLOY_SSH_KEY_FILE",
-                "NETDEPLOY_DATA", "SSH_AUTH_SOCK", "OPENAI_API_KEY",
+    for key in ("VPSDEPLOY_ADMIN_TOKEN", "VPSDEPLOY_SSH_KEY_FILE",
+                "VPSDEPLOY_DATA", "SSH_AUTH_SOCK", "OPENAI_API_KEY",
                 "CODEX_API_KEY", "DOCKER_HOST", "PYTHONPATH"):
         assert key not in env
     assert "/tmp/untrusted" not in env["PATH"]
@@ -80,9 +80,9 @@ class FakeChild:
 
 
 def test_native_worker_copies_only_api_module_and_preserves_login(monkeypatch, tmp_path):
-    monkeypatch.setenv("NETDEPLOY_WORKER_TOKEN", "native-test-token-" + "x" * 32)
-    monkeypatch.setenv("NETDEPLOY_ADMIN_TOKEN", "must-not-enter-worker")
-    monkeypatch.setenv("NETDEPLOY_SSH_KEY_FILE", "must-not-enter-worker")
+    monkeypatch.setenv("VPSDEPLOY_WORKER_TOKEN", "native-test-token-" + "x" * 32)
+    monkeypatch.setenv("VPSDEPLOY_ADMIN_TOKEN", "must-not-enter-worker")
+    monkeypatch.setenv("VPSDEPLOY_SSH_KEY_FILE", "must-not-enter-worker")
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-enter-worker")
     manager = native_codex.NativeCodexManager(ROOT, tmp_path / "data",
                                              local_root=tmp_path / "isolated")
@@ -115,12 +115,12 @@ def test_native_worker_copies_only_api_module_and_preserves_login(monkeypatch, t
     assert str(cwd).endswith("workspace")
     assert "--host" in args and args[args.index("--host") + 1] == "127.0.0.1"
     assert "--port" in args and args[args.index("--port") + 1] == "8789"
-    assert env["NETDEPLOY_CODEX_NATIVE"] == "1"
+    assert env["VPSDEPLOY_CODEX_NATIVE"] == "1"
     assert env["CODEX_HOME"].endswith("auth")
-    assert env["NETDEPLOY_CODEX_PARENT_PID"].isdigit()
+    assert env["VPSDEPLOY_CODEX_PARENT_PID"].isdigit()
     assert str(ROOT) not in str(cwd)
-    for key in ("NETDEPLOY_ADMIN_TOKEN", "NETDEPLOY_SSH_KEY_FILE",
-                "NETDEPLOY_DATA", "OPENAI_API_KEY", "DOCKER_HOST"):
+    for key in ("VPSDEPLOY_ADMIN_TOKEN", "VPSDEPLOY_SSH_KEY_FILE",
+                "VPSDEPLOY_DATA", "OPENAI_API_KEY", "DOCKER_HOST"):
         assert key not in env
     assert "127.0.0.1" not in str(cwd)
     assert manager.child is child
@@ -131,7 +131,7 @@ def test_native_worker_copies_only_api_module_and_preserves_login(monkeypatch, t
 
 
 def test_native_worker_refuses_unknown_local_service(monkeypatch, tmp_path):
-    monkeypatch.setenv("NETDEPLOY_WORKER_TOKEN", "native-test-token-" + "x" * 32)
+    monkeypatch.setenv("VPSDEPLOY_WORKER_TOKEN", "native-test-token-" + "x" * 32)
     manager = native_codex.NativeCodexManager(ROOT, tmp_path / "data",
                                              local_root=tmp_path / "isolated")
     monkeypatch.setattr(manager, "_running_elevated", lambda: False)
@@ -145,7 +145,7 @@ def test_native_worker_refuses_unknown_local_service(monkeypatch, tmp_path):
 
 
 def test_native_worker_does_not_start_from_admin_process(monkeypatch, tmp_path):
-    monkeypatch.setenv("NETDEPLOY_WORKER_TOKEN", "native-test-token-" + "x" * 32)
+    monkeypatch.setenv("VPSDEPLOY_WORKER_TOKEN", "native-test-token-" + "x" * 32)
     manager = native_codex.NativeCodexManager(
         ROOT, tmp_path / "data", local_root=tmp_path / "isolated"
     )
@@ -158,7 +158,7 @@ def test_native_worker_does_not_start_from_admin_process(monkeypatch, tmp_path):
 
 
 def test_failed_worker_health_probe_reaps_native_process(monkeypatch, tmp_path):
-    monkeypatch.setenv("NETDEPLOY_WORKER_TOKEN", "native-test-token-" + "x" * 32)
+    monkeypatch.setenv("VPSDEPLOY_WORKER_TOKEN", "native-test-token-" + "x" * 32)
     manager = native_codex.NativeCodexManager(
         ROOT, tmp_path / "data", local_root=tmp_path / "isolated"
     )

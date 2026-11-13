@@ -140,7 +140,7 @@ if [ "$1" = list-unit-files ]; then echo 'netdeploy-certbot-renew.timer enabled'
 
     retry = run()
     assert retry.returncode == 0, (retry.stdout, retry.stderr)
-    assert "NETDEPLOY_CERTBOT_READY" in retry.stdout
+    assert "VPSDEPLOY_CERTBOT_READY" in retry.stdout
     client = root / "opt/netdeploy-certbot/venv/bin/certbot"
     assert client.is_file()
     service=(root / "etc/systemd/system/netdeploy-certbot-renew.service").read_text()

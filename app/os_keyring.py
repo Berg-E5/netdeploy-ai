@@ -19,7 +19,7 @@ class WindowsCredentialVault:
     def __init__(self, data_path: str):
         canonical = str(Path(data_path).resolve()).casefold().encode("utf-8")
         digest = hashlib.sha256(canonical).hexdigest()[:24]
-        self.service = f"NetDeployAI/vps/{digest}"
+        self.service = f"VPSDeployPanel/vps/{digest}"
 
     def _backend(self):
         if sys.platform != "win32":

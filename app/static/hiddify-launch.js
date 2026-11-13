@@ -7,9 +7,9 @@ window.opener = null;
   const status = document.querySelector('#launch-status');
   try {
     const job = window.location.hash.slice(1);
-    if (!/^[a-f0-9]{16}$/.test(job)) throw new Error('任务编号无效，请从 NetDeploy 的部署任务打开管理面板。');
+    if (!/^[a-f0-9]{16}$/.test(job)) throw new Error('任务编号无效，请从本面板的部署任务打开管理面板。');
     const token = sessionStorage.getItem('nd_token');
-    if (!token) throw new Error('请登录 NetDeploy 后，从部署任务打开管理面板。');
+    if (!token) throw new Error('请登录 VPS Deploy Panel 后，从部署任务打开管理面板。');
 
     const response = await fetch('/api/jobs/' + job + '/hiddify-admin', {
       headers: {'X-Admin-Token': token}, cache: 'no-store',

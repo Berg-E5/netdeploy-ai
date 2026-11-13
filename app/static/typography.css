@@ -1,4 +1,4 @@
-/* NetDeploy AI · readable typography.
+/* VPS Deploy Panel · readable typography.
    The legacy dashboard used 9–12px text across desktop cards and secondary
    copy. Define one scale instead of scattering fixed pixel overrides.
    Loaded AFTER the palette CSS to win the original component cascade. */

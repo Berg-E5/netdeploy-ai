@@ -188,7 +188,7 @@ def test_fake_ufw_never_disables_firewall_or_opens_other_ports(
     else:
         assert proc.returncode==0,proc.stderr
     if should_allow:
-        assert log.read_text().strip()=="allow 24443/tcp comment NetDeploy approved port"
+        assert log.read_text().strip()=="allow 24443/tcp comment VPS Deploy Panel approved port"
         assert "UFW_ALLOWED" in proc.stdout
     else:
         assert not log.exists()

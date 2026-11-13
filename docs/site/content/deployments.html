@@ -1,4 +1,4 @@
-<div class="callout warn"><strong>安装计划不等于已经在你的 VPS 上验证成功</strong><p>NetDeploy v{{version}} 仍是 Alpha；自动安装已通过本地模拟测试，但不同 VPS 镜像、上游网络和防火墙仍可能产生差异。先用测试服务器。</p></div>
+<div class="callout warn"><strong>安装计划不等于已经在你的 VPS 上验证成功</strong><p>本面板 v{{version}} 仍是 Alpha；自动安装已通过本地模拟测试，但不同 VPS 镜像、上游网络和防火墙仍可能产生差异。先用测试服务器。</p></div>
 <h2 id="matrix">目前支持哪些项目？</h2>
 <div class="table-wrap"><table><thead><tr><th>项目</th><th>当前能力</th><th>主要条件</th></tr></thead><tbody>
 <tr><td>3X-UI</td><td>自动安装，选择原生 IP/域名 HTTPS 或 NPM 统一 HTTPS（不申请证书）</td><td>Debian/Ubuntu、root、x86_64/ARM64、systemd</td></tr>
@@ -17,20 +17,20 @@
 <li>已装 3X-UI 时优先点击 <strong>查看已安装面板</strong>。如果旧 NPM 模式只显示本机地址，点击<strong>「开启公网 HTTP（不申请证书）」</strong>，审批独立的两步监听变更任务即可，<strong>无需重装、无需重新申请证书</strong>。失败会尝试恢复原本机监听。</li>
 </ol>
 <p>IP 证书有效期可能为约 160 小时，需要保持续期服务有效。公网面板建议开启强密码、双因素认证与云防火墙管理 IP 白名单。</p>
-<div class="callout"><strong>Debian 13 IP 证书安装修复</strong><p>Debian 13 自带 Certbot 4.0 无法申请 IP 证书。NetDeploy v{{version}} 会在 IP 模式下自动创建独立 Python 虚拟环境、安装 Certbot 5.8.0，并配置专用续期服务 <code>netdeploy-certbot-renew.timer</code>；不会卸载系统旧 Certbot。曾在「步骤 7/9」失败的用户，请更新 NetDeploy 后点击<strong>继续完成 HTTPS</strong>，仅重试四步证书配置，不要覆盖重装 3X-UI。</p></div>
+<div class="callout"><strong>Debian 13 IP 证书安装修复</strong><p>Debian 13 自带 Certbot 4.0 无法申请 IP 证书。本面板 v{{version}} 会在 IP 模式下自动创建独立 Python 虚拟环境、安装 Certbot 5.8.0，并配置专用续期服务 <code>netdeploy-certbot-renew.timer</code>；不会卸载系统旧 Certbot。曾在「步骤 7/9」失败的用户，请更新 NetDeploy 后点击<strong>继续完成 HTTPS</strong>，仅重试四步证书配置，不要覆盖重装 3X-UI。</p></div>
 
 <h2 id="s-ui">S-UI · sing-box 面板</h2>
-<p>NetDeploy 使用官方固定 <code>v1.6.6</code> Release 发行包、SHA-256 校验和随机初始账户，不会运行上游的“最新版本安装脚本”。初次启动前将 Web 管理与订阅监听限制在 VPS <code>127.0.0.1</code>。</p>
+<p>本面板使用官方固定 <code>v1.6.6</code> Release 发行包、SHA-256 校验和随机初始账户，不会运行上游的“最新版本安装脚本”。初次启动前将 Web 管理与订阅监听限制在 VPS <code>127.0.0.1</code>。</p>
 <p>新安装默认自动申请证书：有域名则按域名签发，否则为公网 IPv4 申请短期 IP 证书。<strong>也可在安装页面选择「由 NPM 统一 HTTPS」</strong>，此时只安装本机 HTTP 管理端，不签证书、不执行 Certbot 和 TCP 80 ACME 验证，交由 NPM 管理 SSL。</p>
 <p>证书和续期验收成功后，<strong>查看 S-UI 面板信息</strong>会显示可直接打开的 <code>https://IP或域名:2095/随机路径/</code>。本机 UFW 会精准放行 2095/TCP，云厂商安全组还须为固定管理 IP 开放 2095/TCP。<strong>订阅 2096/TCP 永远只在 VPS 本机监听</strong>，不需要公网放行。</p>
 <div class="callout"><strong>证书失败时不会开放公网 HTTP</strong><p>如果 IP/域名证书未签发或 HTTPS 验收失败，已安装的 S-UI 会保持或恢复 <code>127.0.0.1:2095</code>。你可以先用 SSH 隧道访问，并点击<strong>继续完成 HTTPS</strong>单独重试证书阶段，无需覆盖重新安装。</p></div>
 <pre><code># 仅用于暂时本机访问（证书失败或主动选择本机模式）：
 ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
-<p>如果服务已存在，NetDeploy 只检查状态，不重复覆盖。初始密码可能已经由管理员修改；若需重新配置 HTTPS，必须先通过可信 SSH 确认服务仍由 NetDeploy 管理且在本机监听。</p>
+<p>如果服务已存在，本面板只检查状态，不重复覆盖。初始密码可能已经由管理员修改；若需重新配置 HTTPS，必须先通过可信 SSH 确认服务仍由本面板管理且在本机监听。</p>
 <p>仅当选择 S-UI 原生 HTTPS 时：IP 证书使用独立 Certbot 5.8.0 与续期定时器，域名证书使用系统 Certbot；还需在云平台允许 ACME TCP 80 验证和管理 IP 白名单的 2095/TCP。<strong>选择 NPM 统一 HTTPS 时，以上面板证书步骤及原始管理端口公网放行均不需要。</strong>订阅 2096/TCP 始终不开放公网。</p>
 
 <h2 id="npm">3X-UI / S-UI：交给 NPM 统一申请 HTTPS（不单独申请证书）</h2>
-<p>同一台 VPS 上部署 3X-UI、S-UI、IT-Tools 和 MyIP 时，可以统一用 <strong>Nginx Proxy Manager (NPM)</strong> 管理域名与 SSL。在 NetDeploy 的 3X-UI 或 S-UI 安装页面，把「面板 HTTPS 处理方式」选成<strong>「不申请证书，交给 NPM 反向代理提供 HTTPS」</strong>。</p>
+<p>同一台 VPS 上部署 3X-UI、S-UI、IT-Tools 和 MyIP 时，可以统一用 <strong>Nginx Proxy Manager (NPM)</strong> 管理域名与 SSL。在本面板的 3X-UI 或 S-UI 安装页面，把「面板 HTTPS 处理方式」选成<strong>「不申请证书，交给 NPM 反向代理提供 HTTPS」</strong>。</p>
 <p>该模式只执行 <strong>5 步基础安装</strong>：不调用 Certbot、不为面板签 IP/域名证书、<strong>不占用或放行 ACME TCP 80</strong>。3X-UI 经审批后监听公网 HTTP 面板端口，完成真实监听验证后显示 VPS 公网 IP + 端口 + 登录路径；S-UI 仍只监听本机 HTTP。原始 HTTP 管理端口必须通过云安全组限制为自己的管理 IP，实际访问仍优先使用 NPM 的 HTTPS 域名。</p>
 <div class="table-wrap"><table><thead><tr><th>项目</th><th>反向代理上游</th><th>NPM 选项</th></tr></thead><tbody>
 <tr><td>3X-UI</td><td><code>http://127.0.0.1:24443</code>（端口可编辑；保留实际随机 Web 路径）</td><td>Scheme = http，WebSockets Support = 开启</td></tr>
@@ -50,7 +50,7 @@ ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
 <p>默认 WireGuard 隧道使用 <code>51820/UDP</code>，Web 管理页面绑定 VPS <code>127.0.0.1:51821</code>。首次访问应使用 SSH 隧道初始化管理员与公网连接参数。</p>
 <pre><code>ssh -N -p 22 -L 51821:127.0.0.1:51821 root@YOUR_VPS_IP</code></pre>
 <h2 id="dockge">Dockge Apps · 自定义端口与 Docker 一键安装</h2>
-<p>NetDeploy 使用二开仓库 <a href="https://github.com/slobys/dockge-apps">slobys/dockge-apps</a> 的固定提交构建 Docker 镜像，内置 Nginx Proxy Manager、IT-Tools、MyIP 应用中心。</p>
+<p>本面板使用二开仓库 <a href="https://github.com/slobys/dockge-apps">slobys/dockge-apps</a> 的固定提交构建 Docker 镜像，内置 Nginx Proxy Manager、IT-Tools、MyIP 应用中心。</p>
 <ol>
 <li>在 <strong>项目中心 → Dockge Apps → 部署项目</strong> 中选择 VPS。全新的 Debian/Ubuntu VPS 如果没有 Docker，会自动下载并执行 <a href="https://get.docker.com">Docker 官方一键安装脚本</a>，验收 Compose v2、Buildx 与 Git 后继续。</li>
 <li><strong>管理端口留空时自动随机生成 20000–59999</strong>；也可以手动填 1024–65535 的端口。会检查与 SSH 和现有服务的冲突；容器内部仍使用 5001。</li>
@@ -58,7 +58,7 @@ ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
 <li>安装后点击<strong>查看 Dockge Apps 面板信息</strong>。已有受管理的 Dockge Apps 可以使用<strong>修改端口与访问方式</strong>，只修改容器端口映射并保留数据，不重新安装。</li>
 </ol>
 <div class="callout warn"><strong>默认公网直连的安全注意事项</strong><p>Dockge Apps 访问 Docker Socket，具有很高的 VPS 管理权限。新安装计划默认使用公网 IP + 端口，审批时会再次提醒：首次管理员尚未创建时，其他能访问该端口的人可能抢先注册。建议先在云安全组限制来源为自己的固定管理 IP，或使用 SSH 隧道完成初始化。Docker 映射端口可能绕过 UFW；NetDeploy 不会自行修改云安全组。</p></div>
-<pre><code># SSH-only 模式示例（实际随机端口以 NetDeploy 显示为准）
+<pre><code># SSH-only 模式示例（实际随机端口以本面板显示为准）
 ssh -N -p 22 -L 35000:127.0.0.1:35000 root@YOUR_VPS_IP</code></pre>
 <div class="callout"><strong>官方 Docker 脚本</strong><p>根据你的要求，Docker 安装使用 <a href="https://get.docker.com">get.docker.com</a>，不是原先手写的 APT 安装步骤。脚本通过 HTTPS 下载并保存在 VPS 的受保护目录；NetDeploy 会检查语法、dry-run 与文件校验值后执行本地副本。官方建议该便捷脚本主要用于开发与测试，正式服务器请先做好备份。已有 Docker 安装和数据不会自动被覆盖。</p></div>
 <p>项目源码、Compose 配置及数据分别存放在 <code>/opt/netdeploy/dockge/source</code>、<code>/opt/netdeploy/dockge/compose.yaml</code> 和 <code>/opt/netdeploy/dockge/data</code>；<code>/opt/stacks</code> 是 Compose 栈目录，不会自动删除。旧版原生 Dockge 不会被强制替换。</p>

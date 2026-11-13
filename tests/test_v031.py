@@ -61,7 +61,7 @@ def test_loopback_auto_login_is_opt_in(monkeypatch, enabled):
     monkeypatch.setattr(main, "LOCAL_AUTO_LOGIN", enabled)
     c = TestClient(main.app, base_url="http://127.0.0.1:8787",
                    client=("127.0.0.1", 45100))
-    headers = {"X-NetDeploy-Local":"1", "Sec-Fetch-Site":"same-origin"}
+    headers = {"X-VPSDeploy-Local":"1", "Sec-Fetch-Site":"same-origin"}
     response = c.get("/api/local-session", headers=headers)
     assert response.status_code == (200 if enabled else 403)
     if enabled:
@@ -73,7 +73,7 @@ def test_loopback_auto_login_is_opt_in(monkeypatch, enabled):
 
 def test_local_auto_login_rejects_remote_rebinding_and_cross_origin(monkeypatch):
     monkeypatch.setattr(main, "LOCAL_AUTO_LOGIN", True)
-    headers = {"X-NetDeploy-Local": "1"}
+    headers = {"X-VPSDeploy-Local": "1"}
     localhost = TestClient(main.app, base_url="http://127.0.0.1:8787",
                            client=("127.0.0.1", 40000))
     for more in [
@@ -139,7 +139,7 @@ def test_bootstrap_scripts_are_in_repo_without_embedding_secrets():
     starter = (base/"scripts"/"Start-Windows.ps1").read_text(encoding="utf-8-sig")
     js = (base/"app"/"static"/"app.js").read_text(encoding="utf-8")
     assert "Update-Windows.ps1" in quick and "Start-Windows.ps1" in quick
-    assert "NETDEPLOY_LOCAL_AUTO_LOGIN = '1'" in starter
+    assert "VPSDEPLOY_LOCAL_AUTO_LOGIN = '1'" in starter
     assert "--host 127.0.0.1" in starter
     assert "tryLocalLogin" in js and "confirmDeleteJob" in js
     assert "git reset --hard" not in quick

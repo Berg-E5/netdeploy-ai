@@ -1,4 +1,4 @@
-# NetDeploy AI · 第一阶段架构（VPS 优先）
+# VPS Deploy Panel · 第一阶段架构（VPS 优先）
 
 ## 目标
 

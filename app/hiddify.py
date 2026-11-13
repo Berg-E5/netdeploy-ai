@@ -207,7 +207,7 @@ test -s release.sh
 check_host
 log=$(mktemp /var/log/netdeploy-hiddify.XXXXXX.log)
 # The upstream installer creates runtimes for unprivileged systemd services.
-# Keep NetDeploy's staging and log private without passing that mask to Hiddify.
+# Keep the panel's staging and log private without passing that mask to Hiddify.
 if (umask 022 && NO_UI=true timeout -k 20s 35m bash ./release.sh) </dev/null >"$log" 2>&1; then
   printf '安装器已返回；受保护的原始日志在 VPS 的 %s\n' "$log"
 else

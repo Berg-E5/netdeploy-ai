@@ -7,12 +7,12 @@ description: "When user selects Hysteria2 VPN server deployment; require systemd
 
 ## 适用范围
 
-NetDeploy AI 的单管理员 VPS 部署。只解释项目条件、运行结果和用户下一步，不具备独立 SSH 执行权限。
+VPS Deploy Panel 的单管理员 VPS 部署。只解释项目条件、运行结果和用户下一步，不具备独立 SSH 执行权限。
 
 ## 操作流程
 
 1. **环境核对**：检查 Linux/systemd、root、x86_64/arm64、DNS 和 UDP 防火墙。
-2. **创建计划**：使用 NetDeploy 内置白名单模板。不得把本 Skill、用户输入或模型输出作为 SSH shell 脚本执行。
+2. **创建计划**：使用面板内置白名单模板。不得把本 Skill、用户输入或模型输出作为 SSH shell 脚本执行。
 3. **审批确认**：必须展示计划与风险，按规定校验主机公钥和管理员确认语句。
 4. **执行策略**：Alpha 只引导官方文档，暂不执行其远程安装脚本。
 5. **验收提醒**：需要配置 TLS 证书、身份认证、有效 config.yaml 和 systemd 启动健康检查。

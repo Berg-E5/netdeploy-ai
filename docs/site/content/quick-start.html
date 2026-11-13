@@ -2,13 +2,13 @@
 <div class="callout warn"><strong>先备份测试 VPS</strong><p>本版会使用已审核的远程高权限安装脚本；请先使用临时、可快照或可重装的 Debian / Ubuntu VPS。</p></div>
 <h2 id="add">第 1 步：添加 VPS</h2>
 <ol>
-  <li>打开 NetDeploy 面板，点击右上角 <strong>添加 VPS</strong>。</li>
+  <li>打开本面板，点击右上角 <strong>添加 VPS</strong>。</li>
   <li>输入易识别的名称、服务器<strong>公网 IPv4</strong>、SSH 端口（默认 22）、SSH 用户（自动安装目前要求 root）。</li>
   <li>如果已有域名需要签 HTTPS 证书，再填写 <strong>HTTPS 证书域名</strong>；没有域名可以留空，3X-UI 与 S-UI 都会自动尝试为公网 IP 申请 IP 证书。</li>
   <li>选择 SSH 密码或私钥登录，保存后继续下一步。</li>
 </ol>
 <h2 id="fingerprint">第 2 步：SSH 主机指纹</h2>
-<p>面板会扫描 SSH 主机公钥并显示 SHA-256 指纹。请<strong>在云厂商独立可信控制台</strong>查看服务器公钥指纹，两边一致后再点击确认；不要只凭 NetDeploy 自己显示的结果就信任。</p>
+<p>面板会扫描 SSH 主机公钥并显示 SHA-256 指纹。请<strong>在云厂商独立可信控制台</strong>查看服务器公钥指纹，两边一致后再点击确认；不要只凭本面板自己显示的结果就信任。</p>
 <pre><code># 在 VPS 云厂商的原生终端中运行（示例为 ED25519）：
 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256</code></pre>
 <p>若服务器使用 RSA / ECDSA，按提示选择对应的 <code>/etc/ssh/ssh_host_*.pub</code>。曾经信任且未变化的指纹可直接继续；VPS 重装后出现变化，必须重新独立核对。</p>

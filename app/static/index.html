@@ -4,7 +4,7 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="referrer" content="no-referrer"/>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"/>
-<title>NetDeploy AI · VPS 智能部署平台</title>
+<title>VPS Deploy Panel · VPS 智能部署平台</title>
 <script src="/static/theme.js"></script>
 <link rel="stylesheet" href="/static/app.css"/>
 <link rel="stylesheet" href="/static/app-enhanced.css"/>
@@ -17,11 +17,11 @@
 <div id="login" class="login-overlay hidden">
   <div class="login-box">
     <div class="brand-logo large">◇</div>
-    <h1>欢迎使用 NetDeploy AI</h1>
+    <h1>欢迎使用 VPS Deploy Panel</h1>
     <p>输入部署服务启动时配置的管理员令牌</p>
     <form id="login-form">
       <label for="admin-token">管理员令牌</label>
-      <input type="password" required minlength="24" id="admin-token" placeholder="NETDEPLOY_ADMIN_TOKEN" autocomplete="off"/>
+      <input type="password" required minlength="24" id="admin-token" placeholder="VPSDEPLOY_ADMIN_TOKEN" autocomplete="off"/>
       <button class="btn primary wide" type="submit">进入控制台 →</button>
     </form>
     <div class="login-tip">当前 Alpha 版本仅适合可信单管理员环境。请通过本地端口或 SSH 隧道访问，不要直接暴露公网。</div>
@@ -29,7 +29,7 @@
 </div>
 <div class="layout">
   <aside class="sidebar">
-    <div class="brand"><div class="brand-logo">◇</div><div><strong>NetDeploy <span>AI</span></strong><small>智能网络部署平台</small></div></div>
+    <div class="brand"><div class="brand-logo">◇</div><div><strong>VPS Deploy <span>Panel</span></strong><small>智能网络部署平台</small></div></div>
     <div class="sidebar-caption">工作空间</div>
     <nav class="nav" aria-label="主导航">
       <button class="nav-item active" data-nav="dashboard" aria-label="总览面板" aria-current="page" title="总览面板"><span class="nav-symbol" aria-hidden="true">▦</span> 总览面板</button>
@@ -46,7 +46,7 @@
   <div class="main">
     <header class="topbar">
       <div class="crumb">工作空间 <span>/</span> <b id="crumb-current">总览面板</b></div>
-      <div class="top-actions"><a class="topbar-doc-link" href="https://slobys.github.io/netdeploy-ai/" target="_blank" rel="noopener noreferrer" aria-label="打开 NetDeploy AI 在线使用文档">？ 使用文档 ↗</a><div class="theme-control" id="theme-control">
+      <div class="top-actions"><a class="topbar-doc-link" href="https://berg-e5.github.io/netdeploy-ai/" target="_blank" rel="noopener noreferrer" aria-label="打开 VPS Deploy Panel 在线使用文档">？ 使用文档 ↗</a><div class="theme-control" id="theme-control">
   <button type="button" id="theme-menu-button" class="topbar-theme-button" aria-expanded="false" aria-controls="theme-menu" aria-label="外观主题设置">
     <span class="topbar-theme-icon" aria-hidden="true">◐</span><span class="topbar-theme-text">主题</span>
   </button>
@@ -81,7 +81,7 @@
     <main class="content">
       <section class="hero" id="hero">
         <div class="hero-glow"></div>
-        <div class="hero-content"><div class="eyebrow"><span class="live-dot"></span> NETDEPLOY AI CONTROL CENTER</div>
+        <div class="hero-content"><div class="eyebrow"><span class="live-dot"></span> VPS DEPLOY PANEL CONTROL CENTER</div>
           <h1>服务器管理 <em>更简单、更直观。</em></h1>
           <p>添加或编辑 VPS、核对 SSH 指纹、验证连接与部署项目，都能在首页直接完成。</p>
           <div class="hero-actions"><button class="btn primary" data-action="add-host">＋ 添加 VPS 服务器</button><button class="btn ghost" data-nav="projects">探索项目 →</button></div>
@@ -94,7 +94,7 @@
       <section class="section" id="projects-section"><div class="section-heading smaller"><div><h2>精选部署项目</h2><p>选择经过审核的安装模板，AI 仅提供只读诊断建议</p></div><button class="text-action" data-nav="projects">查看全部项目 →</button></div><div class="project-grid" id="project-grid"></div></section>
       <section class="section" id="jobs-section"><div class="section-heading smaller"><div><h2>最近部署任务</h2><p>审批、状态和日志都清楚可见</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div><div class="job-list" id="job-list"></div></section>
       <p id="project-order-status" role="status"></p>
-      <footer>NetDeploy AI v0.3.31 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
+      <footer>VPS Deploy Panel v0.3.31 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
     </main>
   </div>
 </div>

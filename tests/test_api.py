@@ -85,7 +85,7 @@ def test_security_headers_and_static_serve():
     c=TestClient(main.app)
     res=c.get('/')
     assert res.status_code==200
-    assert 'NetDeploy AI' in res.text
+    assert 'VPS Deploy Panel' in res.text
     assert res.headers['x-frame-options']=='DENY'
     assert res.headers['cache-control']=='no-store'
     assert c.get('/static/app.js').status_code==200

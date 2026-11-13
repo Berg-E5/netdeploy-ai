@@ -24,22 +24,23 @@ import time
 from urllib.parse import urlsplit
 
 import httpx
+from .config import env as cfg_env
 
 PORT = 8789
 VENV_REQUIREMENTS = "requirements-codex-worker.txt"
-ENV_SWITCH = "NETDEPLOY_CODEX_NATIVE_AUTO_START"
+ENV_SWITCH = "VPSDEPLOY_CODEX_NATIVE_AUTO_START"
 
 
 def native_enabled() -> bool:
     return (
         sys.platform == "win32"
         and os.environ.get(ENV_SWITCH) == "1"
-        and os.environ.get("NETDEPLOY_CODEX_AUTO_START", "1") != "0"
+        and cfg_env("CODEX_AUTO_START", "1") != "0"
     )
 
 
 class NativeCodexManager:
-    """One native worker owned by the Windows NetDeploy API process."""
+    """One native worker owned by the Windows panel API process."""
 
     def __init__(self, project_root: Path, data_dir: Path, *,
                  local_root: Path | None = None, port: int = PORT):
@@ -49,7 +50,7 @@ class NativeCodexManager:
             appdata = os.environ.get("LOCALAPPDATA")
             if not appdata:
                 raise RuntimeError("Windows LOCALAPPDATA 不可用，无法隔离 Codex 数据目录")
-            local_root = Path(appdata) / "NetDeployAI" / "codex-native"
+            local_root = Path(appdata) / "VPSDeployPanel" / "codex-native"
         self.local_root = Path(local_root)
         self.port = port
         self.stop_event = threading.Event()
@@ -77,7 +78,7 @@ class NativeCodexManager:
             self.thread.join(timeout=3)
         if self.monitor_thread and self.monitor_thread.is_alive():
             self.monitor_thread.join(timeout=1)
-        self._state("stopped", "Windows 原生 Codex 已随 NetDeploy 关闭")
+        self._state("stopped", "Windows 原生 Codex 已随面板关闭")
 
     def _state(self, state: str, message: str) -> None:
         try:
@@ -88,7 +89,7 @@ class NativeCodexManager:
                 json.dumps(payload, ensure_ascii=False), encoding="utf-8"
             )
         except OSError:
-            pass  # UI status is advisory; never crash NetDeploy.
+            pass  # UI status is advisory; never crash the panel.
 
     @staticmethod
     def _terminate(proc: subprocess.Popen | None) -> None:
@@ -202,15 +203,15 @@ class NativeCodexManager:
     def _monitor_child(self, proc: subprocess.Popen) -> None:
         while not self.stop_event.wait(3):
             if proc.poll() is not None:
-                self._state("failed", "Windows 原生 Codex 进程已退出，请重新启动 NetDeploy")
+                self._state("failed", "Windows 原生 Codex 进程已退出，请重新启动面板")
                 return
 
     def _run(self) -> None:
         ready = False
         try:
             if self._running_elevated():
-                raise RuntimeError("请使用普通用户权限启动 NetDeploy；管理员权限下不启动原生 Codex")
-            token = os.environ.get("NETDEPLOY_WORKER_TOKEN", "")
+                raise RuntimeError("请使用普通用户权限启动本面板；管理员权限下不启动原生 Codex")
+            token = cfg_env("WORKER_TOKEN", "")
             if len(token) < 24 or token.startswith("REPLACE_"):
                 raise RuntimeError("本机 Codex 连接令牌尚未初始化")
             if self._status(token):
@@ -266,9 +267,9 @@ class NativeCodexManager:
                 return
 
             env = self._env()
-            env["NETDEPLOY_WORKER_TOKEN"] = token
-            env["NETDEPLOY_CODEX_NATIVE"] = "1"
-            env["NETDEPLOY_CODEX_PARENT_PID"] = str(os.getpid())
+            env["VPSDEPLOY_WORKER_TOKEN"] = token
+            env["VPSDEPLOY_CODEX_NATIVE"] = "1"
+            env["VPSDEPLOY_CODEX_PARENT_PID"] = str(os.getpid())
             env["CODEX_HOME"] = str(auth)
             env["PYTHONPATH"] = str(runtime)
             # Run the existing worker API on a separate native loopback port;

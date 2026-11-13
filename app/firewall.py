@@ -63,7 +63,7 @@ echo 'UFW_DISABLED: entire VPS host firewall is inactive; cloud ACLs are unchang
 fi
 # Explicitly allow the verified SSH port BEFORE enabling a deny-by-default
 # firewall. Never remove existing rules or reset the UFW configuration.
-ufw allow {ssh_port}/tcp comment 'NetDeploy SSH safeguard' >/dev/null
+ufw allow {ssh_port}/tcp comment 'VPS Deploy Panel SSH safeguard' >/dev/null
 ufw --force enable >/dev/null
 LC_ALL=C ufw status | grep -Fxq 'Status: active' || {{
     echo 'UFW_ENABLE_UNVERIFIED: could not confirm enabled state' >&2; exit 74;
@@ -105,7 +105,7 @@ else
     }}
     # Repeating an already-added allow rule is idempotent. Never disable or
     # reset UFW and never add broad all-ports access.
-    ufw allow {port}/{protocol} comment 'NetDeploy approved port' >/dev/null
+    ufw allow {port}/{protocol} comment 'VPS Deploy Panel approved port' >/dev/null
     echo 'UFW_ALLOWED: {port}/{protocol} (cloud security group must be checked separately)'
 fi
 """
@@ -164,7 +164,7 @@ def allow_ports_script(rules: list[FirewallPort]) -> str:
     for item in rules:
         port, protocol = item.port, item.protocol
         body.extend([
-            f"    if ufw allow {port}/{protocol} comment 'NetDeploy approved port' >/dev/null 2>&1; then",
+            f"    if ufw allow {port}/{protocol} comment 'VPS Deploy Panel approved port' >/dev/null 2>&1; then",
             f"        echo 'ND_RULE {port}/{protocol} allowed'",
             "    else",
             f"        echo 'ND_RULE {port}/{protocol} failed'",
@@ -222,7 +222,7 @@ def parse_firewall_batch_output(raw: str, rules: list[FirewallPort]) -> dict:
 def acme_ufw_script() -> str:
     """ACME port must remain allowed for scheduled HTTP-01 renewals."""
     return allow_port_script(80, "tcp").replace(
-        "NetDeploy approved port", "NetDeploy ACME renewals"
+        "VPS Deploy Panel approved port", "VPS Deploy Panel ACME renewals"
     ).replace(
         "UFW_ALLOWED: 80/tcp (cloud security group must be checked separately)",
         "UFW_ACME_READY: 80/tcp allowed for issuance and scheduled renewals; cloud firewall still needs inbound TCP 80"

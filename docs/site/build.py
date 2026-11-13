@@ -1,4 +1,4 @@
-"""Build and validate the NetDeploy AI public handbook without dependencies."""
+"""Build and validate the VPS Deploy Panel public handbook without dependencies."""
 from __future__ import annotations
 
 import argparse
@@ -124,7 +124,7 @@ def build(output: Path = DEFAULT_OUTPUT) -> Path:
                              "</small>" + html.escape(item["title"]) + "</a>")
             else:
                 pager.append("<span></span>")
-        title = page["title"] + " · NetDeploy AI"
+        title = page["title"] + " · VPS Deploy Panel"
         result = template.substitute(
             title=html.escape(title), description=html.escape(page["description"], quote=True),
             canonical=config["url"] + ("" if page["id"] == "index" else page["id"] + ".html"),
@@ -152,7 +152,7 @@ def build(output: Path = DEFAULT_OUTPUT) -> Path:
     (output / "404.html").write_text(
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        '<title>未找到页面 · NetDeploy AI</title><link rel="stylesheet" href="site.css">'
+        '<title>未找到页面 · VPS Deploy Panel</title><link rel="stylesheet" href="site.css">'
         '</head><body><main class="not-found"><h1>404 · 页面未找到</h1>'
         '<p>请返回文档首页并使用左侧目录或搜索。</p>'
         '<a class="button primary" href="index.html">返回文档首页</a></main></body></html>',

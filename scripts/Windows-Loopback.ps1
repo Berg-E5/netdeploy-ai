@@ -1,4 +1,4 @@
-function Test-NetDeployPortAvailable {
+function Test-VPSDeployPanelPortAvailable {
     param([int]$Port = 8787)
 
     $socket = [System.Net.Sockets.Socket]::new(

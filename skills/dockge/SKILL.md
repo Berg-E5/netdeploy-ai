@@ -9,7 +9,7 @@ description: 'Source-build Dockge Apps with optional reviewed public IP access a
 
 1. 审核 Debian/Ubuntu、root、CPU、systemd、ss、5001/TCP 与可用空间。全新无 Docker 数据的 VPS 可在一次审批计划中先安装 Docker Engine、Buildx、Compose v2 插件及 Git（至少 4GB 空闲）；已有可用 Docker 则直接继续，未知/冲突状态拒绝覆盖。
    Docker 前置步骤使用 https://get.docker.com 官方一键脚本：先下载到受保护目录、检查 Shell 语法/dry-run/校验值，再运行本地文件，并验收 Compose v2。拒绝覆盖旧 Docker。安装可能影响 Docker iptables / UFW 规则，必须显示审批风险。
-2. 拒绝已存在的上游 Dockge、手动安装的 Dockge Apps、旧 NetDeploy Dockge 容器和部分安装目录；不得自动升级或删除用户数据。
+2. 拒绝已存在的上游 Dockge、手动安装的 Dockge Apps、旧版本部署的 Dockge 容器和部分安装目录；不得自动升级或删除用户数据。
 3. 从 https://github.com/slobys/dockge-apps.git 获取固定提交 66aec693a974bd980f632f643586deab16932531，校验 git HEAD，确保 docker/Dockerfile.apps 和 package-lock.json 存在；禁止使用原版 louislam/dockge:1.5.0 应用镜像代替二开程序。
 4. 将源码保留于 /opt/netdeploy/dockge/source，用 Docker Compose 从源码构建 netdeploy/dockge-apps:66aec693a974。Dockerfile.apps 使用上游基础镜像（非 digest 固定），此风险应透明说明。
 5. Compose 目录 /opt/netdeploy/dockge、数据 /opt/netdeploy/dockge/data、栈目录 /opt/stacks，宿主机/容器栈路径一致。保留已有栈，不删除/移动。

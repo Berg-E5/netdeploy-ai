@@ -1,8 +1,8 @@
-# S-UI 安全部署 Skill（NetDeploy AI）
+# S-UI 安全部署 Skill（VPS Deploy Panel）
 
 ## 适用范围
 
-本 Skill 仅供 AI 提供只读部署建议和操作解释；**禁止根据本文件拼接 Shell 命令自动执行**。远程安装必须使用源码 `app/s_ui.py` 与 `app/sui_https.py` 中固定、审计过的脚本，经 NetDeploy 管理员批准后通过受信任的 SSH 主机密钥执行。
+本 Skill 仅供 AI 提供只读部署建议和操作解释；**禁止根据本文件拼接 Shell 命令自动执行**。远程安装必须使用源码 `app/s_ui.py` 与 `app/sui_https.py` 中固定、审计过的脚本，经面板管理员批准后通过受信任的 SSH 主机密钥执行。
 
 上游项目：[alireza0/s-ui](https://github.com/alireza0/s-ui)，固定版本 **v1.6.6**。可用系统：Debian/Ubuntu root SSH VPS、x86_64/aarch64、systemd；`2095/tcp` 与 `2096/tcp` 应空闲。已存在的 s-ui 目录、服务或可执行文件应停止重新安装。
 
@@ -11,7 +11,7 @@
 1. 读取 Linux、root、CPU、systemd 与已安装服务状态；确认端口及磁盘空间，没有已安装 S-UI 才可创建安装计划。
 2. 确认 curl / Python3 / OpenSSL / SHA-256 / tar 依赖。
 3. 只下载 GitHub Releases 固定 v1.6.6 的官方架构资产，校验由 GitHub Releases 提供的 SHA-256，拒绝不安全归档内容。
-4. 在服务**首次启动前**完成随机管理员账户、密码、Web/订阅路径初始化；将管理 `2095` 和订阅 `2096` 的绑定地址限制为 `127.0.0.1`。凭据只保存在 VPS `0600` 受保护文件，不写入 NetDeploy 日志。
+4. 在服务**首次启动前**完成随机管理员账户、密码、Web/订阅路径初始化；将管理 `2095` 和订阅 `2096` 的绑定地址限制为 `127.0.0.1`。凭据只保存在 VPS `0600` 受保护文件，不写入面板日志。
 5. 启动 systemd 服务，确认管理 2095/TCP、订阅 2096/TCP **均且仅**监听 IPv4 `127.0.0.1`（存在额外 `0.0.0.0` 或 IPv6 公网监听必须判为不安全），验证本机 Web 响应，失败时停止并禁用服务。不可在公网开放未经 TLS 验证的管理界面。
 6. 默认继续执行 **HTTPS 四步**：校验 VPS 公网 IPv4 与证书域名 DNS A、UFW 仅按需放行 ACME 80/TCP、复用受审核 Certbot IP/域名证书签发与续期模块、原生写入 S-UI `webCertFile`/`webKeyFile`/`webDomain` 并将 `webListen` 改为公网监听。
    **NPM 模式**：安装页面可以改选由 Nginx Proxy Manager 统一终结 TLS。此时只执行 S-UI 本机 5 步，不进入任何证书或 TCP 80 检查；2095/2096 均保持 127.0.0.1，仅让 NPM 的 host 网络模式容器连接 127.0.0.1:2095 作为 HTTP 上游。NPM 单独使用 80/443 签发 SSL，不将原始 2095 公网开放。

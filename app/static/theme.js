@@ -1,4 +1,4 @@
-/* NetDeploy AI appearance controller. Runs synchronously in <head> before CSS.
+/* VPS Deploy Panel appearance controller. Runs synchronously in <head> before CSS.
    Only saves harmless local UI preferences; never touches application sessions. */
 (() => {
   'use strict';

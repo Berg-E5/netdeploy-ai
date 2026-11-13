@@ -1,5 +1,5 @@
 // No browser, network, VPS or third-party packages required.
-// A minimal DOM harness exercises real NetDeploy UI functions instead of only
+// A minimal DOM harness exercises real panel UI functions instead of only
 // checking text fragments. Desktop and Windows CI both run this smoke test.
 'use strict';
 const assert = require('node:assert/strict');
@@ -434,7 +434,7 @@ function fingerprintFor(label) {
     'Old script plans must not have a direct approval button');
   assert(modal.innerHTML.includes('更新为最新 HTTPS 修复方案'));
 
-  // A failed HTTPS job created by a previous NetDeploy release should
+  // A failed HTTPS job created by a previous panel release should
   // suggest generating a fresh 4-step HTTPS-only plan, not imply that the
   // current code has already failed. No approval is granted by this button.
   fill({...freshJob,project:'3x-ui-https',status:'failed',historical_script:true,
@@ -600,7 +600,7 @@ function fingerprintFor(label) {
   assert(badLink.status.includes('格式无效'));
   const signedOut=await launchHiddify({},{token:null});
   assert.equal(signedOut.request,null);
-  assert(signedOut.status.includes('请登录 NetDeploy'));
+  assert(signedOut.status.includes('请登录 VPS Deploy Panel'));
   fill({...hiddifyJob,needs_refresh:true});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('Hiddify 官网一键入口')&&!modal.innerHTML.includes('id="approve-form"'));
@@ -1030,7 +1030,7 @@ function fingerprintFor(label) {
   assert(made.get('#codex-account-state').innerHTML.includes('Docker Desktop 未启动'));
   codexAccount={available:false,connected:false,pending:false};
   await evaluate('refreshCodexSettings()');
-  assert(made.get('#codex-account-state').innerHTML.includes('QuickStart-NetDeploy.bat'));
+  assert(made.get('#codex-account-state').innerHTML.includes('QuickStart-VPSDeployPanel.bat'));
   evaluate('closeDialog()');
   evaluate('logout()');
   assert.equal(messages.children.length,0,'Remove conversation messages on panel logout');

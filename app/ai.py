@@ -8,10 +8,11 @@ from __future__ import annotations
 import os
 import httpx
 from .tasks import sanitize
+from .config import env
 
 
 def _worker_post(path: str, data: dict) -> dict:
-    url = os.getenv("NETDEPLOY_CODEX_WORKER_URL", "").rstrip("/")
+    url = env("CODEX_WORKER_URL", "").rstrip("/")
     if not url:
         raise RuntimeError("Codex 尚未就绪。请在面板的 Codex AI 中查看连接状态")
     try:
@@ -19,7 +20,7 @@ def _worker_post(path: str, data: dict) -> dict:
         with httpx.Client(timeout=90, trust_env=False, follow_redirects=False) as client:
             response = client.post(
                 url + path, json=data,
-                headers={"X-Worker-Token": os.getenv("NETDEPLOY_WORKER_TOKEN", "")},
+                headers={"X-Worker-Token": env("WORKER_TOKEN", "")},
             )
         if response.status_code == 409:
             raise RuntimeError("请先在 Codex AI 页面完成 ChatGPT 账号登录")
@@ -56,7 +57,7 @@ def _worker_account_request(route: str, *, method: str = "GET") -> dict:
         "cancel": "/account/cancel",
         "logout": "/account/logout",
     }[route]
-    url = os.getenv("NETDEPLOY_CODEX_WORKER_URL", "").rstrip("/")
+    url = env("CODEX_WORKER_URL", "").rstrip("/")
     if not url:
         if route == "status":
             return {"available": False, "connected": False, "pending": False}
@@ -65,7 +66,7 @@ def _worker_account_request(route: str, *, method: str = "GET") -> dict:
         with httpx.Client(timeout=25, trust_env=False, follow_redirects=False) as client:
             response = client.request(
                 method, url + path,
-                headers={"X-Worker-Token": os.getenv("NETDEPLOY_WORKER_TOKEN", "")},
+                headers={"X-Worker-Token": env("WORKER_TOKEN", "")},
             )
         response.raise_for_status()
         data = response.json()
