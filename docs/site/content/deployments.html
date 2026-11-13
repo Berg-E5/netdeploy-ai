@@ -8,7 +8,26 @@
 <tr><td>Dockge Apps</td><td>源码构建；缺 Docker 时自动安装 Engine + Compose v2</td><td>Debian/Ubuntu AMD64/ARM64；干净 VPS 至少 4GB 空间，管理端口可自定义</td></tr>
 <tr><td>Hysteria2</td><td>仅引导、兼容性提示与技能资料</td><td>暂未开放正式一键自动部署</td></tr>
 <tr><td>Hiddify Manager</td><td>官网一键安装（release），人工审批（Beta）</td><td>独立 Ubuntu 22.04/24.04/26.04 VPS，标准 SSH 22，80/443 空闲</td></tr>
+<tr><td><strong>物流报价系统</strong></td><td>固定 commit 下载 → 校验 SHA-256 → systemd 单元 + nginx 反代 + 可选证书</td><td>Debian/Ubuntu、root、systemd、80/443 空闲、域名已解析</td></tr>
+<tr><td><strong>音乐解锁工具</strong></td><td>固定 commit 下载 → 校验 SHA-256 → 静态文件 + nginx 反代 + 可选证书</td><td>Debian/Ubuntu、root、80/443 空闲、域名已解析</td></tr>
 </tbody></table></div>
+<h2 id="my-projects">物流报价系统 · 音乐解锁工具</h2>
+<p>这两个项目由本面板作者自己维护，源码在公开仓库里，<strong>排在项目中心最前面</strong>。部署流程和通用项目完全一致：固定 commit 下载 → 校验 <code>install.sh</code> 的 SHA-256 → 装环境 → 执行安装 → 验收。端口被占或目标项目已安装时会直接阻断，不会覆盖。</p>
+<h3 id="logistics-quote">物流报价系统</h3>
+<p>多用户物流报价计算与改价后台。部署目标是 <a href="https://github.com/Berg-E5/logistics-quote">Berg-E5/logistics-quote</a> 的固定 commit。</p>
+<ol>
+<li>在项目中心选择 <strong>物流报价系统</strong>，填站点域名（必填），可填安装目录（留空用默认 <code>/var/www/quote.byberg.store</code>）。DNS 还没配好时可以勾「跳过 HTTPS 证书申请」先用 HTTP 验证。</li>
+<li>安装会创建 <code>quote-server</code> systemd 单元、写 nginx 站点配置，并在 8792 起后端（端口被占会自动往后挑，挑好的端口写在 <code>data/port</code>）。首次启动生成随机 admin 密码并打印在部署日志里。</li>
+<li><strong>装完是空站</strong>：源码安装不带账号数据和报价表。登录 <code>/admin</code> 后在后台「整表导入」上传报价表 xlsx，约 2～3 分钟生成全部价格，前台立即可用。忘记密码用 <code>node server/user.js passwd admin</code> 重置。</li>
+</ol>
+<div class="callout warn"><strong>想要「装完就有数据」</strong><p>走带数据的发布包安装（仓库里的 <code>deploy/install-remote.sh</code>），那条路会带上现有账号和费率。走 GitHub 源码安装则一定是空站，需要自己上传报价表。</p></div>
+<h3 id="music-unlock">音乐解锁工具</h3>
+<p>浏览器端加密音乐本地解锁。部署目标是 <a href="https://github.com/Berg-E5/music-unlock">Berg-E5/music-unlock</a> 的固定 commit。</p>
+<ol>
+<li>在项目中心选择 <strong>音乐解锁工具</strong>，填站点域名（必填），安装目录默认 <code>/var/www/music-unlock</code>。</li>
+<li>纯静态站：服务器只放静态文件和 nginx 配置，<strong>没有后端、没有数据库、不装常驻服务</strong>。解密在浏览器 Worker 里跑，<strong>文件不上传服务器</strong>。</li>
+</ol>
+
 <h2 id="three-x-ui">3X-UI · Xray 面板</h2>
 <ol>
 <li>在项目中心选择 <strong>3X-UI</strong>，选择目标 VPS 和面板端口；默认示例端口 <code>24443/TCP</code>，也可以自定义。</li>

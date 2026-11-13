@@ -32,6 +32,9 @@
 <h2 id="npm">3X-UI / S-UI 支持 NPM 统一 HTTPS</h2>
 <p>安装面板时可选择「不申请证书，交给 NPM 反向代理」。这样跳过面板自己的 Certbot 和 TCP 80 ACME 验证；3X-UI 会在审批后提供可直接打开的公网 IP:端口 HTTP 地址，S-UI 仍仅本机监听，NPM 统一为各个域名申请 SSL。<a href="deployments.html#npm">查看 NPM 配置和 Docker 网络说明</a>。</p>
 
+<h2 id="my-projects">我的两个项目</h2>
+<p><a href="deployments.html#my-projects">物流报价系统</a>（多用户物流报价计算与改价后台）和 <a href="deployments.html#my-projects">音乐解锁工具</a>（浏览器端加密音乐本地解锁）排在项目中心最前面，源码在公开仓库，部署流程与通用项目一致。</p>
+
 <h2 id="workflow">本面板的实际工作流程</h2>
 <div class="step-flow"><span>添加 VPS</span><b>→</b><span>核对指纹</span><b>→</b><span>环境检测</span><b>→</b><span>可选网络配置</span><b>→</b><span>部署软件</span></div>
 <p>安装不是“点一下就不经确认地运行远程命令”。面板会先检查系统与冲突，再生成可审核的固定脚本；管理员明确批准之后才执行。日志和错误状态会显示在任务页面。</p>
