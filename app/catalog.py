@@ -1,0 +1,644 @@
+"""Audited, deterministic deployment recipe registry.
+
+Never interpret SKILL.md or model output as executable code. Only these reviewed
+recipes may build commands for the remote SSH executor.
+"""
+from __future__ import annotations
+
+import ipaddress
+
+import re
+from typing import Any
+
+from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, validate_port
+from .xui_public_http import http_upgrade_steps
+from .https_upgrade import identify, https_steps, tls_family, is_ipv6_identity
+from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
+from .sui_https import https_steps as sui_https_steps
+from .dockge import VERSION as DOCKGE_VERSION, steps as dockge_steps, reconfigure_steps as dockge_reconfigure_steps, validate_port as dockge_validate_port
+from .docker_runtime import setup_mode as docker_setup_mode, extra_steps as docker_extra_steps
+from .hiddify import BLOCKERS as HIDDIFY_BLOCKERS, steps as hiddify_steps
+from .web_apps import (logistics_quote_steps, music_unlock_steps,
+                       validate_docroot, validate_domain)
+
+CATALOG = {
+    "3x-ui": {
+        "name": "3X-UI", "subtitle": "Xray 可视化管理面板", "category": "面板",
+        "icon": "layers", "deployment": "install", "risk": "高",
+        "docs": "https://docs.sanaei.dev/docs/guide/installation/",
+        "summary": "固定官方安装器及 SHA-256 校验，可自动申请 IP/域名证书，或不申请证书由 NPM 统一反向代理 HTTPS。",
+        "requires": ["Ubuntu/Debian root VPS", "x86_64/arm64", "systemd 和 ss", "无已有 x-ui 安装", "面板仅本机监听，不自动打开公网端口"],
+    },
+    "3x-ui-https": {
+        "name": "3X-UI HTTPS 直连", "subtitle": "为已安装面板签发 IP/域名证书",
+        "category": "HTTPS", "icon": "lock", "deployment": "install",
+        "internal": True, "risk": "高",
+        "docs": "https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability",
+        "summary": "对现有 3X-UI 开通公网可信 HTTPS；只有证书验证和续期配置成功才更改监听。",
+        "requires": ["已完成并运行的 3X-UI", "域名 A 记录或公网 IPv4", "公网上 TCP 80 可访问", "支持 IP 证书的 Certbot", "云防火墙放行管理端口"],
+    },
+    "3x-ui-http": {
+        "name": "3X-UI 公网 HTTP 直连", "subtitle": "启用已安装面板的公网 HTTP（不申请 SSL）",
+        "category": "HTTP", "icon": "globe", "deployment": "install", "risk": "高", "internal": True,
+        "docs": "https://slobys.github.io/netdeploy-ai/deployments.html#npm",
+        "summary": "已有本机监听的 3X-UI 无需重装；经明确审批后开放指定端口的 HTTP，验证失败回退。",
+        "requires": ["NetDeploy 管理并正在运行的 3X-UI", "原始 HTTP 仅本机监听", "用户批准明文 HTTP 风险", "云安全组管理 IP 白名单"],
+    },
+    "s-ui": {
+        "name": "S-UI", "subtitle": "sing-box 可视化管理面板", "category": "面板",
+        "icon": "layers", "deployment": "install", "risk": "高",
+        "docs": "https://github.com/alireza0/s-ui",
+        "summary": "固定发行包与随机管理凭据，可自动申请 IP/域名证书，或选择 NPM 反向代理提供 HTTPS。",
+        "requires": ["Debian/Ubuntu root VPS", "x86_64/arm64", "systemd、ss、Python3 SQLite",
+                     "2095/2096 端口未占用", "无已有 S-UI 安装", "HTTPS 需要公网 TCP 80 及云防火墙允许管理端口"],
+    },
+    "s-ui-https": {
+        "name": "S-UI HTTPS 直连", "subtitle": "为已有 S-UI 面板配置公网 IP/域名证书",
+        "category": "HTTPS", "icon": "lock", "deployment": "install", "internal": True,
+        "risk": "高", "docs": "https://github.com/alireza0/s-ui",
+        "summary": "只升级已安装的受管理 S-UI HTTPS，不覆盖软件或更改订阅端口。",
+        "requires": ["受管理且本机监听的 S-UI", "公网 IPv4/域名", "TCP 80 ACME 入站", "Certbot 自动续期", "云安全组 TCP 2095"],
+    },
+    "sing-box": {
+        "name": "sing-box", "subtitle": "通用网络代理内核", "category": "核心",
+        "icon": "box", "deployment": "install", "risk": "中",
+        "docs": "https://sing-box.sagernet.org/installation/package-manager/",
+        "summary": "通过官方签名 APT 仓库安装内核；不自动生成对外监听配置，安装后仍需完成服务端配置。",
+        "requires": ["Debian/Ubuntu", "x86_64/arm64", "root SSH", "APT 和 curl"],
+    },
+    "hysteria2": {
+        "name": "Hysteria2", "subtitle": "基于 QUIC 的网络传输服务", "category": "协议",
+        "icon": "zap", "deployment": "guided", "risk": "高",
+        "docs": "https://hysteria.network/docs/getting-started/Server-Installation-Script/",
+        "summary": "安装后仍需证书、认证和配置；初版展示完整先决条件，不自动执行下载脚本。",
+        "requires": ["systemd Linux", "TLS 证书或可靠的签发方式", "认证配置", "开放 UDP 端口"],
+    },
+    "dockge": {
+        "name": "Dockge Apps", "subtitle": "Docker Compose 管理与一键应用中心", "category": "容器",
+        "icon": "container", "deployment": "install", "risk": "高",
+        "docs": "https://github.com/slobys/dockge-apps",
+        "summary": "二开应用中心，Docker 可使用官方一键脚本安装；管理端口支持随机/自定义，公网 IP 直连需明确确认。",
+        "requires": ["Debian/Ubuntu root VPS", "x86_64/ARM64", "缺少 Docker 时使用官方 get.docker.com 一键脚本",
+                     "Docker Socket 在部署前可用", "可选择随机或指定宿主机端口", "新装环境至少 4GB 空间", "不会覆盖已有 Dockge", "公网访问需确认安全风险"],
+    },
+    "dockge-access": {
+        "name": "Dockge Apps 端口与访问设置", "subtitle": "修改管理端口或访问模式（不重装）",
+        "category": "容器", "icon": "lock", "deployment": "install", "internal": True, "risk": "高",
+        "docs": "https://slobys.github.io/netdeploy-ai/deployments.html#dockge",
+        "summary": "只修改已受管理的 Dockge Apps 端口映射；失败自动回退原配置。",
+        "requires": ["已有 NetDeploy Dockge Apps", "管理端已初始化", "SSH 信任正确", "TCP 端口空闲"],
+    },
+    "wg-easy": {
+        "name": "wg-easy", "subtitle": "WireGuard + Web 管理界面", "category": "VPN",
+        "icon": "shield", "deployment": "install", "risk": "高",
+        "docs": "https://wg-easy.github.io/wg-easy/v15.4/examples/tutorials/basic-installation/",
+        "summary": "使用 Docker Compose 部署 wg-easy v15，管理 Web 仅绑定 127.0.0.1，首次设置通过 SSH 隧道完成。",
+        "requires": ["Linux amd64/arm64", "Docker Compose", "UDP 51820 未占用", "公网 IP/域名"],
+    },
+    "hiddify": {
+        "name": "Hiddify Manager", "subtitle": "多协议代理与用户管理面板", "category": "面板",
+        "icon": "shield", "deployment": "install", "risk": "高",
+        "docs": "https://hiddify.com/manager/installation-and-setup/guide/",
+        "summary": "在专用 Ubuntu VPS 上使用 Hiddify 官网一键安装，由 Hiddify 管理域名、端口和证书。",
+        "requires": ["全新独立 Ubuntu 22.04 / 24.04 / 26.04 VPS", "root SSH 使用 TCP 22",
+                     "x86_64 或 arm64，systemd", "80/443 无冲突", "约 1 GB 内存，根分区至少 5 GB 可用空间"],
+    },
+    "logistics-quote": {
+        "name": "物流报价系统", "subtitle": "多用户物流报价计算与改价后台", "category": "业务",
+        "icon": "chart", "deployment": "install", "risk": "中",
+        "docs": "https://github.com/Berg-E5/logistics-quote",
+        "summary": "固定 commit 的公开源码；安装 systemd 服务、nginx 反代和可选 HTTPS 证书，"
+                   "首次启动生成 admin 账号。装完是空站，需要在后台上传报价表才有价格。",
+        "requires": ["Debian/Ubuntu root VPS", "x86_64/arm64", "systemd 和 ss",
+                     "TCP 80/443 未被占用", "域名已解析到本机 (申请证书时需要)",
+                     "根分区可用空间 1GB 以上"],
+    },
+    "music-unlock": {
+        "name": "音乐解锁工具", "subtitle": "浏览器端加密音乐本地解密", "category": "业务",
+        "icon": "music", "deployment": "install", "risk": "低",
+        "docs": "https://github.com/Berg-E5/music-unlock",
+        "summary": "固定 commit 的公开源码；纯静态站，部署 = 拷文件 + 写 nginx 反代和可选证书。"
+                   "解密全在浏览器 Worker 里跑，文件不上传。",
+        "requires": ["Debian/Ubuntu root VPS", "systemd 和 ss",
+                     "TCP 80/443 未被占用", "域名已解析到本机 (申请证书时需要)",
+                     "根分区可用空间 256MB 以上"],
+    },
+}
+
+
+# Berg 自己的两个项目排在最前面。
+# 原因: 首页只显示前 5 个项目 (FEATURED_PROJECT_LIMIT), 放在目录末尾
+# 就等于在首页看不到、点不到, 只能进"全部项目"里翻。
+_OWN_FIRST = ("logistics-quote", "music-unlock")
+CATALOG = {
+    **{k: CATALOG[k] for k in _OWN_FIRST if k in CATALOG},
+    **{k: v for k, v in CATALOG.items() if k not in _OWN_FIRST},
+}
+
+SUPPORTED_ARCHS = {"x86_64", "aarch64", "arm64"}
+
+# Fixed scripts reviewed and maintained in source control. No model text here.
+SINGBOX_STEPS = [
+    {
+        "label": "核实执行身份和系统包管理器",
+        "script": "set -eu\ntest \"$(id -u)\" = 0\ncommand -v apt-get >/dev/null\ncommand -v curl >/dev/null\n",
+        "timeout": 20,
+    },
+    {
+        "label": "添加官方签名仓库并安装 sing-box",
+        "script": """set -eu
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y ca-certificates curl
+install -d -m 755 /etc/apt/keyrings
+curl --proto '=https' --tlsv1.2 -fsSL https://sing-box.app/gpg.key -o /tmp/netdeploy-sagernet.asc
+install -m 644 /tmp/netdeploy-sagernet.asc /etc/apt/keyrings/sagernet.asc
+rm -f /tmp/netdeploy-sagernet.asc
+cat > /etc/apt/sources.list.d/sagernet.sources <<'NETDEPLOY_APT'
+Types: deb
+URIs: https://deb.sagernet.org/
+Suites: *
+Components: *
+Enabled: yes
+Signed-By: /etc/apt/keyrings/sagernet.asc
+NETDEPLOY_APT
+apt-get update
+apt-get install -y sing-box
+""",
+        "timeout": 300,
+    },
+    {
+        "label": "核验已安装内核（不自动启动服务）",
+        "script": "set -eu\ncommand -v sing-box\nsing-box version\n",
+        "timeout": 30,
+    },
+]
+
+WGEASY_STEPS = [
+    {
+        "label": "检查 Docker / Compose / root 权限和端口",
+        "script": """set -eu
+test "$(id -u)" = 0
+docker info >/dev/null
+docker compose version >/dev/null
+if command -v ss >/dev/null && ss -Hlun | grep -Eq '(^|[[:space:]])[^[:space:]]*:51820([[:space:]]|$)'; then
+  echo 'UDP 51820 seems occupied' >&2
+  exit 16
+fi
+test ! -e /opt/netdeploy/wg-easy/compose.yaml
+""",
+        "timeout": 30,
+    },
+    {
+        "label": "写入最小权限 Docker Compose 配置",
+        "script": """set -eu
+umask 077
+mkdir -p /opt/netdeploy/wg-easy
+cat > /opt/netdeploy/wg-easy/compose.yaml <<'NETDEPLOY_WG_EASY_COMPOSE'
+services:
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: netdeploy-wg-easy
+    networks:
+      wg:
+        ipv4_address: 10.42.42.42
+        ipv6_address: fdcc:ad94:bacf:61a3::2a
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - wg_data:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - '51820:51820/udp'
+      - '127.0.0.1:51821:51821/tcp'
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.conf.default.forwarding=1
+    restart: unless-stopped
+volumes:
+  wg_data:
+networks:
+  wg:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.42.42.0/24
+        - subnet: fdcc:ad94:bacf:61a3::/64
+NETDEPLOY_WG_EASY_COMPOSE
+docker compose -f /opt/netdeploy/wg-easy/compose.yaml config -q
+""",
+        "timeout": 30,
+    },
+    {
+        "label": "启动 wg-easy 容器",
+        "script": "set -eu\ndocker compose -f /opt/netdeploy/wg-easy/compose.yaml up -d\n",
+        "timeout": 300,
+    },
+    {
+        "label": "检查容器运行状态",
+        "script": "set -eu\ntest \"$(docker inspect -f '{{.State.Running}}' netdeploy-wg-easy)\" = true\n",
+        "timeout": 30,
+    },
+]
+
+
+def compatibility(project: str, facts: dict[str, Any], options: dict | None = None) -> tuple[bool, list[str]]:
+    issues: list[str] = []
+    os_id = str(facts.get("OS_ID", "")).lower()
+    arch = str(facts.get("ARCH", "")).lower()
+    if str(facts.get("UID", "")) != "0":
+        issues.append("第一阶段只允许以已验证的 root SSH 身份执行变更操作")
+    if arch not in SUPPORTED_ARCHS:
+        issues.append(f"当前 CPU 架构 {arch or '未知'} 尚未通过第一阶段验证")
+    if project in {"3x-ui", "3x-ui-https", "3x-ui-http"}:
+        if os_id not in {"debian", "ubuntu"}:
+            issues.append("3X-UI 一键部署目前仅对 Ubuntu/Debian 开放")
+        if arch not in {"x86_64", "aarch64"}:
+            issues.append("3X-UI 目前仅支持 x86_64 / aarch64")
+        if facts.get("SYSTEMD") != "yes":
+            issues.append("3X-UI 需要可用的 systemd")
+        if facts.get("SS_AVAILABLE") != "yes":
+            issues.append("无法可靠检测面板 TCP 端口，请先安装 iproute2 并重新环境检测")
+        expected = "yes" if project in {"3x-ui-https", "3x-ui-http"} else "no"
+        if facts.get("XUI_PRESENT") != expected:
+            issues.append("管理端监听变更要求已安装 x-ui，且已完成冲突检测" if project in {"3x-ui-https", "3x-ui-http"} else "已存在 x-ui 安装，或尚未完成新版 x-ui 冲突检测；禁止覆盖")
+    if project in {"s-ui", "s-ui-https"}:
+        if os_id not in {"debian", "ubuntu"}:
+            issues.append("S-UI 自动安装目前仅对 Debian/Ubuntu 开放")
+        if arch not in {"x86_64", "aarch64", "arm64"}:
+            issues.append("S-UI 目前只支持 x86_64/arm64")
+        if facts.get("SYSTEMD") != "yes" or facts.get("SS_AVAILABLE") != "yes":
+            issues.append("S-UI 安装需要 systemd 和 ss 端口检测")
+        if facts.get("SUI_PRESENT") != ("yes" if project == "s-ui-https" else "no"):
+            issues.append("S-UI HTTPS 需要已安装并完成冲突检测的面板" if project == "s-ui-https" else "已有 S-UI 或尚未完成冲突检查；禁止覆盖已安装程序")
+    if project == "sing-box" and os_id not in {"debian", "ubuntu"}:
+        issues.append("自动安装 sing-box 暂仅覆盖 Debian/Ubuntu APT 环境")
+    if project == "wg-easy":
+        if facts.get("DOCKER") != "yes":
+            issues.append("未检测到可用的 Docker daemon")
+        if facts.get("COMPOSE") != "yes":
+            issues.append("未检测到 Docker Compose v2")
+        if facts.get("UDP_51820") != "free":
+            issues.append("UDP 51820 端口已占用，或无法可靠检测端口占用状态")
+    if project in {"logistics-quote", "music-unlock"}:
+        if os_id not in {"debian", "ubuntu"}:
+            issues.append(f"{'物流报价系统' if project == 'logistics-quote' else '音乐解锁工具'} 自动安装目前仅对 Debian/Ubuntu 开放")
+        if facts.get("SYSTEMD") != "yes":
+            issues.append("需要可用的 systemd")
+        if facts.get("SS_AVAILABLE") != "yes":
+            issues.append("无法可靠检测 TCP 端口占用，请先安装 iproute2 并重新环境检测")
+        if facts.get("TCP_80") != "free":
+            issues.append("TCP 80 已被占用或无法检测；nginx 反代需要独占 80 端口")
+        if facts.get("TCP_443") != "free":
+            issues.append("TCP 443 已被占用或无法检测；HTTPS 需要独占 443 端口")
+        if project == "logistics-quote":
+            if facts.get("QUOTE_PRESENT") == "yes":
+                issues.append("已存在物流报价系统安装 (quote-server 服务或安装目录)，拒绝覆盖")
+            if int(facts.get("FREE_KB") or 0) < 1048576:
+                issues.append("根分区可用空间不足 1GB")
+        else:
+            if facts.get("MUSIC_PRESENT") == "yes":
+                issues.append("已存在音乐解锁站点安装，拒绝覆盖")
+            if int(facts.get("FREE_KB") or 0) < 262144:
+                issues.append("根分区可用空间不足 256MB")
+    if project in {"dockge", "dockge-access"}:
+        if os_id not in {"debian", "ubuntu"}:
+            issues.append("Dockge Apps 仅支持已验证的 Debian/Ubuntu VPS")
+        if facts.get("SS_AVAILABLE") != "yes":
+            issues.append("需要 ss 检测管理端口状态")
+        if project == "dockge-access":
+            if facts.get("DOCKGE_PRESENT") != "yes":
+                issues.append("只能修改已安装的 Dockge Apps")
+            if facts.get("DOCKER") != "yes" or facts.get("COMPOSE") != "yes":
+                issues.append("必须有运行正常的 Docker 和 Compose")
+        else:
+            if os_id not in {"debian", "ubuntu"}:
+                issues.append("Dockge Apps 自动安装目前仅对已验证的 Debian/Ubuntu VPS 开放")
+            docker_mode = docker_setup_mode(facts)
+            if docker_mode == "blocked":
+                issues.append("Docker/Compose 安装不完整、来源不明或存在冲突；为保护已有容器，不会自动覆盖。请检查环境后重新检测")
+            if docker_mode in {"fresh", "compose", "git"}:
+                supported = {"debian": {"12", "13"}, "ubuntu": {"22.04", "24.04", "26.04", "26.10"}}
+                if str(facts.get("OS_VERSION", "")) not in supported.get(os_id, set()):
+                    issues.append("自动安装 Docker 仅支持官方已覆盖的 Debian 12/13、Ubuntu 22.04/24.04/26.04/26.10")
+                if facts.get("SYSTEMD") != "yes":
+                    issues.append("Docker 自动安装需要 systemd")
+                if docker_mode == "fresh" and facts.get("GIT_AVAILABLE") not in {"yes", "no"}:
+                    issues.append("无法确认 Git 状态，请更新环境检测")
+            elif facts.get("GIT_AVAILABLE") != "yes":
+                issues.append("无法确认 Git 状态")
+            if facts.get("SS_AVAILABLE") != "yes":
+                issues.append("缺少 ss，无法可靠判断 5001/TCP 端口占用")
+            if facts.get("DOCKGE_PRESENT") != "no":
+                issues.append("检测到已有 Dockge、Dockge Apps 或旧版检测结果不完整；不自动覆盖/迁移数据")
+            if (not options or options.get("panel_port", 5001) == 5001) and facts.get("DOCKGE_TCP_5001") != "free":
+                issues.append("默认端口 5001/TCP 已占用，请使用自定义或随机端口")
+    if project == "hysteria2" and facts.get("SYSTEMD") != "yes":
+        issues.append("Hysteria2 官方安装脚本需要 systemd")
+    if project == "hiddify":
+        if os_id != "ubuntu" or facts.get("OS_VERSION") not in {"22.04", "24.04", "26.04"}:
+            issues.append(HIDDIFY_BLOCKERS["ubuntu"])
+        elif facts.get("HIDDIFY_STATE") != "ready":
+            issues.append(HIDDIFY_BLOCKERS.get(facts.get("HIDDIFY_STATE"), "缺少 Hiddify 专用 VPS 预检结果"))
+    minimum_kb = (5_000_000 if project == "hiddify" else
+                  100_000 if project == "dockge-access" else
+                  (4_000_000 if docker_setup_mode(facts) == "fresh" else 3_000_000)
+                  if project == "dockge" else
+                  600_000 if project in {"3x-ui", "s-ui"} else 400_000)
+    if not str(facts.get("FREE_KB", "")).isdigit():
+        issues.append("无法确认根分区可用空间")
+    elif int(facts["FREE_KB"]) < minimum_kb:
+        minimum_text = ("5 GB" if project == "hiddify" else
+                        "100 MB" if project == "dockge-access" else
+                        ("4 GB" if minimum_kb == 4_000_000 else "3 GB") if project == "dockge" else
+                        ("600 MB" if minimum_kb == 600_000 else "400 MB"))
+        issues.append(f"根分区可用空间不足（至少需要 {minimum_text}）")
+    return not issues, issues
+
+
+def _tls_ssh_bindings(identity: str, options: dict) -> dict[str, str]:
+    """Validate the exact SSH family; do not allow arbitrary plan IP injections."""
+    ssh4, ssh6 = options.get("ssh_ipv4"), options.get("ssh_ipv6")
+    tls_family(identity, ssh4, ssh6)
+    result = {}
+    if ssh4 is not None:
+        result["ssh_ipv4"] = identify(ssh4)[1]
+    if ssh6 is not None:
+        result["ssh_ipv6"] = identify(ssh6)[1]
+    return result
+
+
+def build_plan(project: str, facts: dict[str, Any], options: dict | None = None) -> dict[str, Any]:
+    if project not in CATALOG:
+        raise ValueError("不支持该项目")
+    options = dict(options or {})
+    if project == "3x-ui":
+        if set(options) - {"panel_port", "access_mode", "tls_identity", "certificate_type", "ssh_ipv4", "ssh_ipv6", "public_ipv6"}:
+            raise ValueError("3X-UI 部署选项包含未授权字段")
+        port = validate_port(options.get("panel_port", DEFAULT_PORT))
+        access_mode = options.get("access_mode", "local")
+        if access_mode not in {"local", "https", "npm"}:
+            raise ValueError("不支持的 3X-UI 访问方式")
+        if access_mode == "https":
+            if "public_ipv6" in options:
+                raise ValueError("IPv6 公网 HTTP 标识不能混入 HTTPS 证书方案")
+            mode, identity = identify(options.get("tls_identity", ""))
+            if "certificate_type" in options and options["certificate_type"] != mode:
+                raise ValueError("保存的证书类型与 IP/域名不一致，请重新生成部署方案")
+            pins = _tls_ssh_bindings(identity, options)
+            options = {"panel_port": port, "access_mode": "https", "tls_identity": identity,
+                       "certificate_type": mode, **pins}
+        else:
+            if any(key in options for key in ("tls_identity", "certificate_type", "ssh_ipv4", "ssh_ipv6")):
+                raise ValueError("仅 HTTPS 模式可填写证书标识")
+            if access_mode == "npm":
+                ipv6 = options.get("public_ipv6")
+                if ipv6 is not None:
+                    try:
+                        address = ipaddress.IPv6Address(ipv6)
+                    except ValueError as exc:
+                        raise ValueError("公网 HTTP 的 IPv6 地址格式错误") from exc
+                    if (not address.is_global or address.is_multicast or
+                            address.scope_id is not None or address.ipv4_mapped is not None):
+                        raise ValueError("公网 HTTP 只允许公网单播 IPv6 地址")
+                    ipv6 = str(address)
+                options = {"panel_port": port, "access_mode": "npm"}
+                if ipv6 is not None:
+                    options["public_ipv6"] = ipv6
+            else:
+                if "public_ipv6" in options:
+                    raise ValueError("本机模式不能填写公网 IPv6 监听地址")
+                options = {"panel_port": port}
+    elif project == "3x-ui-http":
+        if set(options) != {"panel_port"}:
+            raise ValueError("HTTP 公网升级仅允许填写已核验的面板端口")
+        options = {"panel_port": validate_port(options["panel_port"])}
+    elif project in {"s-ui", "s-ui-https"}:
+        allowed = {"access_mode", "tls_identity", "certificate_type", "ssh_ipv4", "ssh_ipv6"}
+        if project == "s-ui-https":
+            allowed.discard("access_mode")
+            allowed.add("source_job_id")
+        if set(options) - allowed:
+            raise ValueError("S-UI HTTPS 部署含未授权参数")
+        if project == "s-ui":
+            mode = options.get("access_mode", "local")
+            if mode not in {"https", "local", "npm"}:
+                raise ValueError("S-UI 访问方式不合法")
+            if mode in {"local", "npm"}:
+                if set(options) - {"access_mode"}:
+                    raise ValueError("非证书模式不能填写 S-UI 证书选项")
+                options = {"access_mode": mode}
+        else:
+            mode = "https"
+            if "source_job_id" in options:
+                source = options["source_job_id"]
+                if not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{16}", source):
+                    raise ValueError("S-UI 原安装任务编号不合法")
+        if mode == "https":
+            tls_mode, identity = identify(options.get("tls_identity", ""))
+            if "certificate_type" in options and options["certificate_type"] != tls_mode:
+                raise ValueError("S-UI 证书类型与 IP/域名不一致")
+            pins = _tls_ssh_bindings(identity, options)
+            normalized = {"access_mode": "https", "tls_identity": identity,
+                          "certificate_type": tls_mode, **pins}
+            if project == "s-ui-https":
+                normalized.pop("access_mode")
+                if "source_job_id" in options:
+                    normalized["source_job_id"] = options["source_job_id"]
+            options = normalized
+    elif project in {"dockge", "dockge-access"}:
+        allowed = {"panel_port", "access_mode", "public_confirmed"}
+        if set(options) - allowed:
+            raise ValueError("Dockge Apps 端口配置包含无效参数")
+        port = dockge_validate_port(options.get("panel_port", 5001))
+        mode = options.get("access_mode", "local")
+        if mode not in {"public", "local"}:
+            raise ValueError("Dockge Apps 管理方式只支持本机或公网")
+        consent = options.get("public_confirmed", False)
+        if type(consent) is not bool or (mode == "public" and not consent):
+            raise ValueError("公网模式需要明确确认 Docker 高权限与明文 HTTP 风险")
+        if options:
+            options = {"panel_port": port, "access_mode": mode, "public_confirmed": consent}
+    elif project == "3x-ui-https":
+        # Recovery after task history was cleared is allowed only when the API
+        # independently verifies the *live* managed localhost installation.
+        allowed = {"panel_port", "tls_identity", "source_job_id", "certificate_type", "ssh_ipv4", "ssh_ipv6"}
+        if set(options) - allowed or not {"panel_port", "tls_identity"} <= set(options):
+            raise ValueError("3X-UI HTTPS 升级选项不完整或包含未授权字段")
+        mode, identity = identify(options["tls_identity"])
+        if "certificate_type" in options and options["certificate_type"] != mode:
+            raise ValueError("保存的证书类型与 IP/域名不一致，请重新生成部署方案")
+        source = options.get("source_job_id")
+        if source is not None and (not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{16}", source)):
+            raise ValueError("3X-UI 原安装任务编号不合法")
+        pins = _tls_ssh_bindings(identity, options)
+        options = {"panel_port": validate_port(options["panel_port"]),
+                   "tls_identity": identity, "certificate_type": mode, **pins}
+        if source is not None:
+            options["source_job_id"] = source
+    elif project in {"logistics-quote", "music-unlock"}:
+        allowed = {"domain", "docroot", "skip_ssl"}
+        if set(options) - allowed:
+            raise ValueError("部署选项包含未授权字段")
+        domain = validate_domain(options.get("domain", ""))
+        docroot = validate_docroot(options.get("docroot", ""))
+        skip_ssl = options.get("skip_ssl", False)
+        if type(skip_ssl) is not bool:
+            raise ValueError("skip_ssl 必须是布尔值")
+        options = {"domain": domain}
+        if docroot:
+            options["docroot"] = docroot
+        if skip_ssl:
+            options["skip_ssl"] = True
+    elif options:
+        raise ValueError("此项目暂不支持自定义部署选项")
+    meta = CATALOG[project]
+    eligible, issues = compatibility(project, facts, options)
+    runnable = eligible and meta["deployment"] == "install"
+    if meta["deployment"] == "guided":
+        issues.append("此项目暂采用人工确认的引导模式；第一阶段不执行远程安装命令")
+    if runnable and project == "3x-ui":
+        steps = deployment_steps(options["panel_port"],
+                                 public_http=options.get("access_mode") == "npm",
+                                 public_ipv6=options.get("public_ipv6"))
+        if options.get("access_mode") == "https":
+            steps = steps + https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"), options.get("ssh_ipv6"))
+    elif runnable and project == "3x-ui-http":
+        steps = http_upgrade_steps(options["panel_port"])
+    elif runnable and project == "3x-ui-https":
+        steps = https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"), options.get("ssh_ipv6"))
+    elif runnable and project == "s-ui":
+        steps = sui_steps(str(facts.get("ARCH", "")))
+        if options.get("access_mode") == "https":
+            steps += sui_https_steps(options["tls_identity"], options.get("ssh_ipv4"), options.get("ssh_ipv6"))
+    elif runnable and project == "s-ui-https":
+        steps = sui_https_steps(options["tls_identity"], options.get("ssh_ipv4"), options.get("ssh_ipv6"))
+    elif runnable and project == "sing-box":
+        steps = SINGBOX_STEPS
+    elif runnable and project == "wg-easy":
+        steps = WGEASY_STEPS
+    elif runnable and project == "hiddify":
+        steps = hiddify_steps()
+    elif runnable and project == "dockge":
+        steps = docker_extra_steps(facts) + dockge_steps(options.get("panel_port", 5001), options.get("access_mode", "local"))
+    elif runnable and project == "dockge-access":
+        steps = dockge_reconfigure_steps(options["panel_port"], options["access_mode"])
+    elif runnable and project == "logistics-quote":
+        steps = logistics_quote_steps(options["domain"],
+                                      options.get("docroot", ""),
+                                      options.get("skip_ssl", False))
+    elif runnable and project == "music-unlock":
+        steps = music_unlock_steps(options["domain"],
+                                   options.get("docroot", ""),
+                                   options.get("skip_ssl", False))
+    else:
+        steps = []
+    plan = {
+        "project": project,
+        "name": meta["name"],
+        "docs": meta["docs"],
+        "risk": meta["risk"],
+        "eligible": eligible,
+        "executable": runnable,
+        "options": options,
+        "issues": issues,
+        "requires": meta["requires"],
+        "steps": [dict(x) for x in steps],
+        "warnings": {
+            "s-ui": [
+                f"从上游 GitHub Releases 固定下载 {SUI_VERSION} 的 amd64/arm64 发行包，并通过已固定 SHA-256 校验，不运行在线最新安装脚本",
+                "首次初始化随机管理员账号、强密码和 Web 路径；敏感信息仅保存在 VPS 受权限保护的文件中，部署日志不输出密码",
+                "先保持管理 2095 与订阅 2096 都只监听 VPS 本机；HTTPS 通过后才将管理端口切到公网 2095/TCP，订阅 2096 始终不开放",
+                "HTTPS 模式按域名/公网 IPv4 自动申请证书：IP 使用独立 Certbot 5.8.0 虚拟环境与专用续期服务（不覆盖系统 Certbot），需公网 TCP 80 验证",
+                "证书签发或 HTTPS 验收失败时保留/恢复 S-UI 本机监听，不回退成公网明文 HTTP；云安全组需手动放行管理端口",
+                "不会覆盖已有 S-UI；如果失败可能留下需要人工检查的部分目录/服务，不应直接重复执行安装",
+            ],
+            "s-ui-https": ["仅为已安装且本机运行的受管理 S-UI 签发 IP/域名证书，不重复下载或安装面板", "先验证公网 IPv4 / DNS A 与 TCP 80 可达；IP 证书自动使用独立 Certbot 5.8.0 + 续期定时器，域名使用系统 Certbot",  "HTTPS 配置或验证失败自动恢复 127.0.0.1:2095；订阅 2096 始终本机访问", "需要云厂商手动设置 TCP 2095 入站管理 IP 白名单"],
+            "sing-box": ["安装的是内核，不会自动配置对外监听或打开端口", "APT 仓库密钥来自官方 HTTPS 地址，初版尚未固定密钥指纹", "APT 变更不会自动回滚"],
+            "dockge": [
+                f"从用户二开项目 slobys/dockge-apps 固定 Git 提交构建 {DOCKGE_VERSION}；并非直接使用原版镜像",
+                "全新 VPS 缺少 Docker 时从 https://get.docker.com 下载官方一键安装脚本并做本地校验后执行；不使用 curl | bash 管道",
+                "已安装 Docker Engine 只缺 Compose 时仅对可识别的官方版本补装插件；异常、旧数据或来源不明则拒绝自动覆盖",
+                "安装 Docker 会启用服务并可能改变 iptables/容器网络规则；发布的容器端口可能绕过 UFW，请先备份并审查云防火墙",
+                "GitHub、npm、Docker Hub 和 Docker 官方 APT 软件源需可访问，APT 安装失败可能留下需要人工核对的部分状态",
+                "新安装默认公网 IP:端口 HTTP，宿主机端口可随机或自定义；公网开放必须经过单独的风险审批，云安全组需另行限制来源",
+                "Docker Socket 具有近似 root 的管理权限；Dockge Apps 可管理 /opt/stacks 中的 Compose 栈",
+                "二开应用中心内置 Nginx Proxy Manager、IT-Tools、MyIP，可自定义端口；首次登录需创建管理员，不生成预设密码",
+                "已有原版 Dockge 或 Dockge Apps 实例不会自动迁移或替换，需手动备份及迁移；保留旧数据和容器",
+            ],
+            "dockge-access": [
+                "仅更改受管理 Dockge Apps 的 Compose 端口映射，不重建镜像、不删 Docker 数据；验证失败时还原配置",
+                "公网 HTTP 可被他人访问；确认管理员已经初始化并建议将云安全组来源限制为自己的公网 IP",
+                "Docker Socket 拥有高权限；公网开放前必须明确确认安全风险，不能把未初始化的管理页面公开",
+            ],
+            "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
+            "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "先将面板绑定本机 127.0.0.1；选择 HTTPS 时自动按公网 IPv4 / 域名签发证书并验证，成功后才开放公网 HTTPS，失败不开放明文 HTTP", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],
+            "3x-ui-http": [
+                "只更改已安装受管理 3X-UI 的监听地址，不重装软件、不改管理员或证书设置",
+                "即使不申请证书，也会把面板原始 HTTP 端口暴露公网；明文密码可能被窃听",
+                "请先在云安全组限制来源为自己的管理公网 IP，再审批本机 UFW 放行指定 TCP 端口",
+                "执行后需校验真实公网监听和本机 HTTP 响应；如果失败会尝试恢复本机监听",
+            ],
+            "3x-ui-https": ["公网 TCP 80 必须允许 Let’s Encrypt HTTP-01 验证（本机空闲不代表云安全组开放）；域名证书要求 DNS A 正确，公网 IP 证书使用 shortlived", "IP 证书有效期约 160 小时，必须保持 netdeploy-certbot-renew.timer 活跃（独立续期）；域名证书使用系统 certbot.timer；失败不开放公网面板",  "公网 HTTPS 管理面板属于高敏感服务，请启用强密码、双因素认证和云防火墙 IP 白名单"],
+            "hysteria2": ["需要单独实现 TLS 证书、身份认证和服务器配置"],
+            "logistics-quote": [
+                "从 GitHub 公开仓库的固定 commit 下载源码，校验 deploy/install.sh 的 SHA-256 后才执行；不追 main 分支，不使用 curl | bash",
+                "安装会创建 systemd 服务、安装 nginx 并写入站点配置；域名需已解析到本机，否则证书签发会失败",
+                "从公开源码安装是**空站**：没有账号数据和报价表，装完要在后台「整表导入」上传报价表才能报价",
+                "首次启动会生成随机 admin 密码并打印在部署日志里；请在日志中及时保存，之后用 node server/user.js passwd admin 重置",
+                "安装脚本会 apt 安装 nginx / python3 / openpyxl，Node.js 缺失时按需安装 Node 20",
+                "不会覆盖已存在的 quote-server 服务；端口 80/443 被占用时直接阻断",
+            ],
+            "music-unlock": [
+                "从 GitHub 公开仓库的固定 commit 下载源码，校验 install.sh 的 SHA-256 后才执行；不追 main 分支，不使用 curl | bash",
+                "纯静态站：解密在浏览器 Worker 里跑，服务器只提供文件，没有任何后端或数据库",
+                "安装会写入 nginx 站点配置；域名需已解析到本机，否则证书签发会失败",
+                "不安装任何常驻服务，不需要 Docker；目录下的文件全部是公开的静态资源",
+            ],
+            "hiddify": [
+                "执行 Hiddify 官网一键安装入口（release），安装版本由官方发布渠道决定",
+                "仅在已备份的独立 VPS 上审批。安装会改动系统与防火墙并使用 80/443，NetDeploy 不会替你修改云安全组",
+                "管理链接含访问凭据。安装完成后可在任务中打开管理面板，首次进入时由 Hiddify 启动快速设置",
+            ],
+        }[project],
+    }
+    if (project in {"3x-ui", "3x-ui-https", "s-ui", "s-ui-https"}
+            and options.get("certificate_type") in {"ip", "domain"}
+            and (options.get("ssh_ipv6") or is_ipv6_identity(options.get("tls_identity", "")))):
+        # Do not show the legacy IPv4/A-record guidance on a pinned IPv6 plan.
+        plan["warnings"] = [
+            note.replace("公网 IPv4", "公网 IPv6").replace("DNS A", "DNS AAAA")
+            for note in plan["warnings"]
+        ]
+        plan["warnings"].insert(
+            0, "IPv6 自动 HTTPS：远端必须实际分配目标全局 IPv6；域名所有 AAAA 记录必须指向该地址。"
+               "IPv6 HTTP-01 需要本机 UFW IPv6 开启，并在云厂商安全组放行公网 TCP 80。"
+               "成功后仍需独立验证公网 IPv6 的实际可达性。",
+        )
+        if options.get("certificate_type") == "ip":
+            plan["warnings"].append(
+                "公网 IPv6 IP 证书采用约 160 小时的 shortlived 配置，"
+                "由 NetDeploy 独立 Certbot 和每四小时续期定时器维护；"
+                "续期依赖 TCP 80 持续可达，严禁关闭续期任务。"
+            )
+    if project in {"3x-ui", "s-ui"} and options.get("access_mode") == "npm":
+        upstream_port = options["panel_port"] if project == "3x-ui" else 2095
+        plan["npm_proxy"] = {
+            "scheme": "http", "host": "127.0.0.1", "port": upstream_port,
+            "network_mode": "host", "websockets": project == "3x-ui",
+        }
+        plan["warnings"] = [
+            "已选择不申请 IP/域名证书：不会运行 Certbot、ACME HTTP-01、TCP 80 预检或证书续期配置",
+            f"3X-UI 原始 HTTP 将在公网 TCP {upstream_port} 监听；NPM 仍可通过宿主机 127.0.0.1:{upstream_port} 反代。S-UI 仍仅本机监听" if project == "3x-ui" else f"S-UI 仅在本机 127.0.0.1:{upstream_port} 监听，不开放原始管理端口",
+            "NPM 需要能够访问宿主机 loopback；Docker bridge 模式无法直接连接 127.0.0.1，建议 NPM 使用 network_mode: host（需去掉 ports 映射）",
+            "由 NPM 使用独立域名申请和续期 SSL，Proxy Host 使用 http + 127.0.0.1 + 面板端口；3X-UI 请开启 WebSocket Support",
+            "请先确认 NPM 的 80/443 可用并正确设置域名 DNS A、云防火墙和 81 管理端访问白名单",
+            "3X-UI 若启用公网 HTTP，必须只允许可信来源访问并尽快通过 NPM 的 HTTPS 域名登录；原始 HTTP 明文会暴露管理员凭据" if project == "3x-ui" else "S-UI 仅允许 NPM/SSH 隧道连接原始 HTTP 上游，避免公网明文登录",
+        ]
+    return plan

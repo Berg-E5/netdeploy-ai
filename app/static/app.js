@@ -1,0 +1,1930 @@
+/* NetDeploy AI v0.3.31 – no external JavaScript, no generated remote shell. */
+const el = (s) => document.querySelector(s);
+const CLIENT_VERSION = '0.3.31';
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
+
+async function api(path, opts={}) {
+  const resp = await fetch('/api'+path,{...opts,headers:{'X-Admin-Token':state.token,...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})},cache:'no-store'});
+  let data;
+  try{data=await resp.json();}catch{data={detail:`HTTP ${resp.status}`};}
+  if(!resp.ok){if(resp.status===401)logout();throw Error(typeof data.detail==='string'?data.detail:`操作失败 (${resp.status})`);}
+  return data;
+}
+let toastTimer=null;
+function toast(message,bad=false){
+ const t=el('#toast');
+ if(!t)return;
+ clearTimeout(toastTimer);
+ const working=/^正在|^扫描中|^连接中/.test(message);
+ t.textContent=(bad?'⚠  ':working?'◌  ':'✓  ')+message;
+ t.className='toast'+(bad?' bad':working?' progress':'');
+ t.setAttribute('role',bad?'alert':'status');
+ t.setAttribute('aria-live',bad?'assertive':'polite');
+ toastTimer=setTimeout(()=>t.classList.add('hidden'),bad?9500:5300);
+}
+let modalReturnFocus=null;
+function dialog(content){
+ const layer=el('#modal'),contentNode=el('#modal-content');
+ const opening=layer.classList.contains('hidden');
+ if(opening)modalReturnFocus=document.activeElement||null;
+ contentNode.innerHTML=content;
+ layer.classList.remove('hidden');
+ if(opening)contentNode.focus?.({preventScroll:true});
+}
+function closeDialog(){
+ el('#modal').classList.add('hidden');
+ el('#modal-content').innerHTML='';
+ if(modalReturnFocus?.isConnected!==false)modalReturnFocus?.focus?.({preventScroll:true});
+ modalReturnFocus=null;
+}
+function modalHead(title,isRoot=false){const back=state.hostPanel&&!isRoot?`<button class="server-back" data-action="back-host" data-id="${state.hostPanel.id}">← 返回这台服务器</button>`:"";return `<div class="modal-header"><div><h2 id="nd-modal-title">${escapeHtml(title)}</h2>${back}</div><button class="close" type="button" data-action="close-modal" aria-label="关闭">×</button></div>`;}
+async function loadAll(silent=false){
+  if(state.loading||!state.token)return;
+  state.loading=true;
+  try {
+    const [hosts,jobs,catalog,capabilities,health] = await Promise.all([
+      api('/hosts'),api('/jobs'),api('/catalog'),api('/capabilities'),api('/health')
+    ]);
+    const serverVersion=String(health?.version||'');
+    const versionTag=el('.tag.alpha');
+    if(serverVersion&&serverVersion!==CLIENT_VERSION){
+      if(versionTag){versionTag.textContent='版本不一致 · 后端 '+serverVersion;versionTag.title='页面版本 '+CLIENT_VERSION+'，服务端 '+serverVersion;}
+      if(!state.versionMismatchShown){
+        toast('页面与运行中的服务版本不一致。请停止旧 PowerShell 服务，重新运行桌面更新脚本并按 Ctrl+F5。',true);
+        state.versionMismatchShown=true;
+      }
+    }else{
+      if(versionTag)versionTag.textContent='ALPHA v'+CLIENT_VERSION;
+      state.versionMismatchShown=false;
+    }
+    const snapshot=JSON.stringify([hosts,jobs,catalog,capabilities]);
+    const changed=snapshot!==state.lastSnapshot;
+    state.hosts=hosts;state.jobs=jobs;state.catalog=catalog;state.capabilities=capabilities;state.lastSnapshot=snapshot;
+    if(changed)render();
+    if(!silent)toast('控制台已刷新');
+    if(state.activeJob && !el('#modal').classList.contains('hidden')) {
+      const active=state.jobs.find(j=>j.id===state.activeJob);
+      const statusNode=el('#job-state'),logbox=el('#task-log');
+      if(active&&statusNode&&logbox){
+        const before=statusNode.dataset.currentStatus||'';
+        if(before!==active.status&&['completed','partial','failed','interrupted','invalidated'].includes(active.status)){
+          // Replace the open task panel once on state transition; completed
+          // install/HTTPS actions become visible without reopening the modal.
+          showJob(active.id);
+          toast(active.status==='completed'?'任务已完成，可以直接查看面板信息':'任务状态已更新，请查看错误或后续操作',active.status==='failed');
+        }else{
+          logbox.textContent=active.logs||'还没有执行日志';
+          statusNode.textContent=jobStatusText(active);
+          statusNode.dataset.currentStatus=active.status;
+        }
+      }
+    }
+  } catch(err){if(!silent)toast(err.message,true);} finally{state.loading=false;}
+}
+function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'部分完成 · 等待验收',invalidated:'服务器已重装，计划失效'})[status]||status;}
+function hiddifyPlanBlocked(job){return job.project==='hiddify'&&job.status==='planned'&&job.plan?.executable===false;}
+function isExistingHiddifyPlan(job){return hiddifyPlanBlocked(job)&&job.plan.preflight_baseline?.HIDDIFY_STATE==='existing';}
+function jobStatusText(job){
+ if(isExistingHiddifyPlan(job))return '检测到已有安装';
+ return hiddifyPlanBlocked(job)?'预检未通过':stateText(job.status);
+}
+function chip(job){const {status}=job;const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(jobStatusText(job))}</span>`;}
+const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣","hiddify":"▣","logistics-quote":"◫","music-unlock":"♫"};
+// Single source of truth: public projects, excluding internal upgrade recipes.
+function catalogProjects(catalog){return Object.entries(catalog||{}).filter(([,project])=>project&&!project.internal);}
+const projectGrid=el('#project-grid');
+const PROJECT_ORDER_KEY='nd_project_order';
+const FEATURED_PROJECT_LIMIT=5;
+let projectOrder=readProjectOrder();
+let projectDrag=null;
+let projectMarkup='';
+
+function readProjectOrder(){
+ try{
+   const saved=JSON.parse(window.localStorage.getItem(PROJECT_ORDER_KEY));
+   return Array.isArray(saved)?saved.filter(id=>typeof id==='string'):[];
+ }catch{return [];}
+}
+function applyProjectOrder(){
+ const cards=Array.from(projectGrid.children);
+ const byId=new Map(cards.map(card=>[card.dataset.project,card]));
+ const defaults=catalogProjects(state.catalog).map(([id])=>id);
+ const customized=projectOrder.some(id=>byId.has(id));
+ const ids=customized?[...new Set([...projectOrder,...defaults])]:defaults;
+ const ordered=ids.map(id=>byId.get(id)).filter(Boolean);
+ const featured=ordered.filter(card=>customized||!['dockge','hiddify'].includes(card.dataset.project))
+   .slice(0,FEATURED_PROJECT_LIMIT);
+ for(const card of cards){
+   card.classList.toggle('hidden',state.section==='dashboard'&&!featured.includes(card));
+ }
+ if(ordered.some((card,index)=>card!==cards[index]))projectGrid.append(...ordered);
+}
+function moveProject(card,target){
+ const cards=Array.from(projectGrid.children);
+ const from=cards.indexOf(card),to=cards.indexOf(target);
+ if(from<0||to<0||from===to)return;
+ const [moved]=cards.splice(from,1);
+ cards.splice(to,0,moved);
+ projectOrder=cards.map(item=>item.dataset.project);
+ try{window.localStorage.setItem(PROJECT_ORDER_KEY,JSON.stringify(projectOrder));}catch{}
+ applyProjectOrder();
+ el('#project-order-status').textContent=`${state.catalog[card.dataset.project].name} 已移动到第 ${to+1} 位`;
+}
+function highlightProjectTarget(drag){
+ const card=document.elementFromPoint(drag.x,drag.y)?.closest('#project-grid > .project');
+ const target=card&&card!==drag.card?card:null;
+ if(target===drag.target)return;
+ drag.target?.classList.remove('is-drop-target');
+ target?.classList.add('is-drop-target');
+ drag.target=target;
+}
+function scrollProjectDrag(){
+ const drag=projectDrag;
+ if(!drag?.active)return;
+ const {left,right}=projectGrid.getBoundingClientRect();
+ if(drag.x>=left&&drag.x<=right&&drag.y>=0&&drag.y<window.innerHeight){
+   const delta=drag.y<48?-12:drag.y>window.innerHeight-48?12:0;
+   if(delta){
+     window.scrollBy({top:delta,behavior:'instant'});
+     highlightProjectTarget(drag);
+   }
+ }
+ drag.frame=window.requestAnimationFrame(scrollProjectDrag);
+}
+function cancelProjectDrag(){
+ const drag=projectDrag;
+ if(!drag)return;
+ projectDrag=null;
+ if(drag.frame)window.cancelAnimationFrame(drag.frame);
+ drag.card.classList.remove('is-drag-source');
+ drag.target?.classList.remove('is-drop-target');
+ projectGrid.classList.remove('is-reordering');
+ if(projectGrid.hasPointerCapture(drag.id))projectGrid.releasePointerCapture(drag.id);
+}
+projectGrid.addEventListener('pointerdown',event=>{
+ const handle=event.target.closest('.project-sort-handle');
+ if(state.section!=='projects'||!handle||event.button!==0||!event.isPrimary||projectDrag)return;
+ projectGrid.setPointerCapture(event.pointerId);
+ projectDrag={id:event.pointerId,card:handle.closest('.project'),x:event.clientX,y:event.clientY,
+   startX:event.clientX,startY:event.clientY,target:null,active:false,frame:0};
+});
+projectGrid.addEventListener('pointermove',event=>{
+ const drag=projectDrag;
+ if(!drag||drag.id!==event.pointerId)return;
+ drag.x=event.clientX;
+ drag.y=event.clientY;
+ if(!drag.active){
+   if(Math.hypot(drag.x-drag.startX,drag.y-drag.startY)<5)return;
+   drag.active=true;
+   drag.card.classList.add('is-drag-source');
+   projectGrid.classList.add('is-reordering');
+   drag.frame=window.requestAnimationFrame(scrollProjectDrag);
+ }
+ highlightProjectTarget(drag);
+});
+projectGrid.addEventListener('pointerup',event=>{
+ const drag=projectDrag;
+ if(!drag||drag.id!==event.pointerId)return;
+ if(drag.active){
+   drag.x=event.clientX;
+   drag.y=event.clientY;
+   highlightProjectTarget(drag);
+ }
+ cancelProjectDrag();
+ if(drag.target)moveProject(drag.card,drag.target);
+});
+for(const type of ['pointercancel','lostpointercapture']){
+ projectGrid.addEventListener(type,event=>{
+   if(projectDrag?.id===event.pointerId)cancelProjectDrag();
+ });
+}
+projectGrid.addEventListener('keydown',event=>{
+ const handle=event.target.closest('.project-sort-handle');
+ const delta={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1}[event.key];
+ if(state.section!=='projects'||!handle||!delta||event.ctrlKey||event.altKey||event.metaKey||projectDrag)return;
+ event.preventDefault();
+ const cards=Array.from(projectGrid.children),card=handle.closest('.project');
+ const target=cards[cards.indexOf(card)+delta];
+ if(!target)return;
+ moveProject(card,target);
+ handle.focus();
+});
+function render(){
+ const {hosts,jobs,catalog}=state;
+ const projects=catalogProjects(catalog);
+ const loneInstalledXui=hosts.length===1&&hosts[0].facts?.XUI_PRESENT==='yes';
+ const loneInstalledSui=hosts.length===1&&hosts[0].facts?.SUI_PRESENT==='yes';
+ const loneInstalledDockge=hosts.length===1&&hosts[0].facts?.DOCKGE_PRESENT==='yes';
+ el('#stats').innerHTML = [
+  ['已添加服务器',hosts.length,'▤','已通过 SSH 扫描 '+hosts.filter(h=>!!h.facts).length+' 台'],
+  ['项目模板',projects.length,'⬡','固定、可审核的部署计划'],
+  ['完成任务',jobs.filter(j=>j.status==='completed').length,'✓','安装完成仍需业务配置'],
+  ['待处理任务',jobs.filter(j=>['failed','interrupted','partial'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'⌁','需确认或排障的任务']
+ ].map(([label,val,ico,desc])=>`<div class="stat"><div class="top"><span>${label}</span><span class="icon">${ico}</span></div><strong>${val}</strong><small>${desc}</small></div>`).join('');
+ const markup=projects.map(([key,p])=>`
+ <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span>
+ <button type="button" class="project-sort-handle" title="拖动或用方向键调整顺序" aria-label="调整 ${escapeHtml(p.name)} 的顺序" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01"/></svg></button></div>
+ <h3>${escapeHtml(p.name)}</h3><p>${escapeHtml(p.subtitle)}</p><div class="project-footer">
+ <span class="status ${p.deployment==='install'?'':'muted'}">${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'已安装 · 无需审批':p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
+ <button class="btn subtle" data-action="${key==='3x-ui'&&loneInstalledXui?'installed-xui':key==='s-ui'&&loneInstalledSui?'installed-sui':key==='dockge'&&loneInstalledDockge?'installed-dockge':'plan'}" ${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'data-id="'+hosts[0].id+'"':'data-project="'+escapeHtml(key)+'"'}>${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'查看已安装面板':p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
+ if(markup!==projectMarkup){
+   cancelProjectDrag();
+   projectGrid.innerHTML=markup;
+   projectMarkup=markup;
+ }
+ el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
+   const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
+   const status=!h.credential_ready?'需要登录凭据':h.facts?'最近检测成功':'待连接检测';
+   const statusClass=!h.credential_ready?'error':h.facts?'success':'warn';
+   return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
+      <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><span class="host-card-open">管理服务器 →</span></div>
+      <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
+      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}${h.facts?.DOCKGE_PRESENT==='yes'?'<span class="host-installed-xui">Dockge / Apps 已安装</span>':''}</div>
+      ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
+      <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
+    </article>`;
+ }).join('')+`<button class="host-add-card" type="button" data-action="add-host" aria-label="添加 VPS 服务器" title="添加 VPS 服务器">＋</button>`:
+ `<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
+ el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':historicalHttpsFailure(j)?'regenerate-plan':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
+ renderSection();
+}
+function renderSection(){
+ const visibleProjects=catalogProjects(state.catalog).length;
+ const navBadge=el('#project-nav-count');
+ if(navBadge){navBadge.textContent=String(visibleProjects);navBadge.setAttribute('aria-label',`共 ${visibleProjects} 个项目`);}
+ const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 拖动卡片右上角排序，首页显示排序后的前 ${FEATURED_PROJECT_LIMIT} 个`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
+ const [title,heading,sub]=navName[state.section];el('#crumb-current').textContent=title;el('#section-title').textContent=heading;el('#section-subtitle').textContent=sub;
+ document.querySelectorAll('[data-nav]').forEach(b=>{
+   const navItem=b.classList.contains('nav-item');
+   const active=navItem&&b.dataset.nav===state.section;
+   b.classList.toggle('active',active);
+   if(navItem){if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
+ });
+ el('#hero').classList.toggle('hidden',state.section!=='dashboard');el('#stats').classList.toggle('hidden',state.section!=='dashboard');
+ el('#projects-section').classList.toggle('hidden',!['dashboard','projects'].includes(state.section));
+ // Both project surfaces share the readable compact cards. The Project Center
+ // hides its redundant second heading; dashboard keeps the curated heading/link.
+ el('#projects-section').classList.toggle('is-featured',state.section==='dashboard');
+ el('#projects-section').classList.toggle('is-catalog',state.section==='projects');
+ if(state.section!=='projects')cancelProjectDrag();
+ applyProjectOrder();
+ el('#hosts-section').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
+ el('#jobs-section').classList.toggle('hidden',!['dashboard','jobs'].includes(state.section));
+}
+function isPlanExpired(job){
+ if(job.status!=='planned')return false;
+ const timestamp=Date.parse(job.created_at);
+ return Number.isFinite(timestamp)&&Date.now()-timestamp>10*60*1000;
+}
+function planNeedsUpdate(job){
+ return job.status==='planned'&&(job.needs_refresh===true||isPlanExpired(job));
+}
+function isExistingXuiPlan(job){
+ const host=state.hosts.find(h=>h.id===job.host_id);
+ return job.project==='3x-ui'&&job.status==='planned'&&!job.plan?.executable&&
+   !job.plan?.steps?.length&&job.plan?.issues?.some(v=>v.includes('x-ui'))&&
+   (job.plan?.preflight_baseline?.XUI_PRESENT==='yes'||host?.facts?.XUI_PRESENT==='yes');
+}
+function jobLabel(job){
+ if(isExistingXuiPlan(job))return '已安装 · 无需审批';
+ if(hiddifyPlanBlocked(job))return jobStatusText(job);
+ if(job.status==='planned'&&!job.plan?.executable)return '当前不能自动部署';
+ return stateText(job.status);
+}
+function historicalHttpsFailure(job){
+ return job.project==='3x-ui-https'&&job.status==='failed'&&job.historical_script===true;
+}
+function jobNextAction(job){
+ if(isExistingXuiPlan(job))return '查看已安装面板';
+ if(isExistingHiddifyPlan(job))return '查看安装状态';
+ if(historicalHttpsFailure(job))return '生成最新版 HTTPS 修复方案';
+ if(job.status==='planned'&&!job.plan?.executable)return '查看原因';
+ if(job.status==='planned'&&job.needs_refresh===true)return '更新为最新安全部署方案';
+ if(isPlanExpired(job))return '更新方案，继续审批';
+ return ({planned:'继续审批部署',queued:'查看等待进度',running:'查看部署进度',
+   partial:'继续完成配置',failed:'查看失败原因',completed:'查看结果 / 面板',
+   invalidated:'查看旧任务记录',interrupted:'查看中断原因'})[job.status]||'查看任务';
+}
+function hostTaskLink(job){
+ const host=state.hosts.find(h=>h.id===job.host_id);
+ const stale=(job.plan?.trust_epoch||0)!==(host?.trust_epoch||0);
+ const action=stale?'查看旧任务':jobNextAction(job);
+ const openExisting=!stale&&isExistingXuiPlan(job);
+ const updateFailedHttps=!stale&&historicalHttpsFailure(job);
+ const name=job.plan?.name||state.catalog[job.project]?.name||job.project;
+ return `<button type="button" class="server-history-item ${job.status==='planned'&&job.plan?.executable&&!stale?'is-pending':''}" data-action="${openExisting?'installed-xui':updateFailedHttps?'regenerate-plan':planNeedsUpdate(job)&&!stale&&job.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(openExisting?job.host_id:job.id)}"
+    aria-label="${escapeHtml(name)}，${escapeHtml(stale?'已失效':jobLabel(job))}，${escapeHtml(action)}">
+   <span class="server-task-icon" aria-hidden="true">${symbol[job.project]||'▣'}</span>
+   <span class="server-task-title"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(stale?'服务器重装前的历史':isExistingXuiPlan(job)?'面板已存在，不需要执行安装审批':historicalHttpsFailure(job)?'旧版脚本的失败记录，不代表新版仍存在相同问题':isPlanExpired(job)&&job.plan?.executable?'审批计划已过期':jobLabel(job))} · ${escapeHtml(job.created_at.slice(0,16).replace('T',' '))}</small></span>
+   <span class="server-task-next">${escapeHtml(action)} <span aria-hidden="true">→</span></span></button>`;
+}
+function openHostConsole(id,tab='overview'){
+ const host=state.hosts.find(h=>h.id===id);if(!host){toast('服务器记录不存在，请刷新',true);return;}
+ state.hostPanel={id,tab};state.activeJob=null;
+ const tabs=[['overview','概览'],['deploy','安装软件'],['network','网络端口'],['security','SSH 安全'],['settings','服务器设置']];
+ const connected=Boolean(host.facts);
+ const related=state.jobs.filter(j=>j.host_id===id).sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,5);
+ const active=related.find(j=>['running','queued'].includes(j.status))
+    ||(!host.facts||host.facts.XUI_PRESENT!=='yes'?related.find(j=>j.status==='planned'&&!isPlanExpired(j)&&j.plan?.executable&&(j.plan?.trust_epoch||0)===(host.trust_epoch||0)):null)
+    ||(!host.facts||host.facts.XUI_PRESENT!=='yes'?related.find(j=>j.status==='planned'&&j.plan?.executable&&(j.plan?.trust_epoch||0)===(host.trust_epoch||0)):null)
+    ||related.find(j=>['partial','failed','interrupted'].includes(j.status));
+ const ready=host.credential_ready&&connected;
+ const installedXui=host.facts?.XUI_PRESENT==='yes';
+ let content='';
+ if(tab==='overview'){
+   let next='';
+   if(installedXui&&!related.some(j=>['running','queued'].includes(j.status))){
+     next=`<section class="server-next-action is-ready"><span class="server-next-kicker">已安装 · 无需部署审批</span>
+       <h3>检测到 3X-UI 已安装</h3><p>直接查看现有面板的登录地址与已保存的初始账号信息。若 HTTPS 尚未完成，可在面板详情中继续配置，不会重新安装。</p>
+       <button type="button" class="btn primary" data-action="installed-xui" data-id="${id}">查看 3X-UI 面板信息 →</button>
+     </section>`;
+   }else if(active){
+     const pending=active.status==='planned',running=['queued','running'].includes(active.status);
+     const header=pending?(active.needs_refresh?'此部署方案来自旧版代码，需要刷新':isPlanExpired(active)?'部署计划已过期，刷新后继续':'部署方案已准备好，等待你的批准'):running?'部署正在执行':'上次部署需要处理';
+     const detail=pending?(active.needs_refresh?'GitHub 已更新经过审核的固定脚本。请生成最新方案，避免继续执行旧版 HTTPS 命令；更新方案不会直接修改 VPS。':isPlanExpired(active)?'计划创建超过 10 分钟，出于安全考虑必须重新检测。点击即可生成最新方案，不会直接安装。':'目前还未开始在 VPS 上安装。点击下面按钮，核对目标和风险后即可一次确认启动。'):
+        running?'可直接查看安装进度，无需重复创建部署任务。':'查看具体失败原因或继续完成后续配置，无需重复安装已部署的软件。';
+     next=`<section class="server-next-action ${pending?'pending':''}" aria-label="当前待办任务">
+       <span class="server-next-kicker">${pending?'下一步 · 待审批':running?'正在执行 · 任务进度':'需要处理 · 部署任务'}</span>
+       <h3>${header}</h3><p>${detail}</p>
+       <button type="button" class="btn primary" data-action="${planNeedsUpdate(active)?'regenerate-plan':'job'}" data-id="${escapeHtml(active.id)}">${jobNextAction(active)} →</button>
+     </section>`;
+   }else if(!ready){
+     next=`<section class="server-next-action"><span class="server-next-kicker">下一步 · 连接服务器</span>
+       <h3>检查 SSH 连接与服务器环境</h3><p>首次使用先确认主机指纹，随后检测系统。之后创建部署任务时会自动复核，无须每次手动检测。</p>
+       <button type="button" class="btn primary" data-action="host-tab" data-id="${id}" data-tab="security">检查 SSH 身份 →</button>
+     </section>`;
+   }else{
+     next=`<section class="server-next-action is-ready"><span class="server-next-kicker">可以继续</span>
+       <h3>这台 VPS 已有可用的连接信息</h3><p>直接选择开源项目，系统会自动检查运行环境并生成部署方案。</p>
+       <button type="button" class="btn primary" data-action="host-tab" data-id="${id}" data-tab="deploy">选择软件，一键部署 →</button>
+     </section>`;
+   }
+   content=`${next}
+    <div class="server-simple-status">
+      <div><span>服务器</span><strong>${escapeHtml(host.hostname)}:${host.port}</strong></div>
+      <div><span>运行环境</span><strong>${connected?escapeHtml(host.facts.OS_ID)+' / '+escapeHtml(host.facts.ARCH):'尚未检测'}</strong></div>
+      <div><span>连接方式</span><strong>${host.auth_mode==='password'?'SSH 密码'+(host.password_remembered?' · 已安全保存':''):'SSH 私钥'}</strong></div>
+    </div>
+    <div class="server-panel-section"><div class="server-subheading"><h3>最近部署任务</h3><p>点击任务就能继续审批、查看进度或处理失败，无需重新安装。</p></div>
+      ${related.length?related.map(hostTaskLink).join(''):'<p class="helptext">还没有部署任务。点击上面的“选择软件，一键部署”开始。</p>'}
+    </div>
+    <details class="server-advanced-actions"><summary>其他管理操作（连接检测、端口、安全设置）</summary>
+      <div class="server-action-grid">
+        <button type="button" class="btn subtle" data-action="host-check" data-id="${id}">重新检测连接</button>
+        <button type="button" class="btn subtle" data-action="host-tab" data-id="${id}" data-tab="network">配置防火墙端口</button>
+      </div></details>`;
+ }else if(tab==='deploy'){
+   const visible=Object.entries(state.catalog).filter(([_,project])=>!project.internal);
+   const pending=related.filter(j=>j.status==='planned'&&j.plan?.executable&&(j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&!installedXui);
+   content=`<div class="server-tab-intro"><h3>安装或继续配置软件</h3>
+     <p>只需要选择项目。系统会自动检测、生成安全计划并识别已有安装，安装前仅需批准一次。</p></div>
+     ${pending.length?`<div class="server-pending-shortcut"><strong>你有 ${pending.length} 个等待审批的计划</strong>
+       <button class="btn primary" data-action="${planNeedsUpdate(pending[0])?'regenerate-plan':'job'}" data-id="${escapeHtml(pending[0].id)}">${planNeedsUpdate(pending[0])?'刷新方案并继续':'立即继续审批'} →</button></div>`:''}
+     <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
+       <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')||(key==='dockge'&&host.facts?.DOCKGE_PRESENT==='yes')?'<span class="chip success">已安装</span>':''}<small>${escapeHtml(project.subtitle)}</small>
+       <span class="project-choice-link">${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')||(key==='dockge'&&host.facts?.DOCKGE_PRESENT==='yes')?'已安装 · 查看面板信息':project.deployment==='install'?'安装 / 继续配置':'查看部署方案'} →</span>
+     </button>`).join('')}</div>`;
+ }else if(tab==='network'){
+   content=`<div class="server-tab-intro"><h3>开放服务器需要使用的端口</h3><p>例如 HTTPS 证书验证需要 TCP 80，3X-UI 默认管理端口是 TCP 24443。这里只有本机 UFW，云平台安全组仍须另行允许。</p></div>
+     <div id="server-firewall-status" class="server-status-panel"><span class="inline-spinner" aria-hidden="true"></span>正在检查 UFW…</div>
+     <form id="server-allow-form"><div class="form-2">
+       <div class="form-group"><label>要放行的端口</label><input name="port" type="number" min="1" max="65535" value="80" required/></div>
+       <div class="form-group"><label>协议</label><select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
+     </div><div class="modal-actions"><button type="submit" class="btn primary">放行本机防火墙端口</button></div></form>
+     <p class="helptext">仅设置 VPS 内的 UFW。云厂商安全组不受本功能影响。</p>
+     ${cloudFirewallHelp()}
+     <div class="firewall-toggle-panel">
+       <h4>本机防火墙开关（高级操作）</h4>
+       <p>关闭 UFW 会取消整台 VPS 的本机端口过滤，但不会关闭云厂商安全组。仅用于确认排障需要时手动操作。</p>
+       <div class="firewall-toggle-actions"><button class="btn danger" data-action="toggle-ufw" data-id="${id}" data-mode="disable" type="button">关闭 VPS 本机防火墙</button>
+         <button class="btn subtle" data-action="toggle-ufw" data-id="${id}" data-mode="enable" type="button">重新启用 UFW</button></div>
+     </div>`;
+ }else if(tab==='security'){
+   content=`<div class="server-tab-intro"><h3>SSH 身份与登录安全</h3><p>SSH 指纹用于确认连接的是原来的服务器；登录密码用于身份认证。VPS 重装后若指纹变化，应独立核对后更新，不能直接跳过。</p></div>
+     <div class="server-action-grid">
+       <button class="btn primary" data-action="fingerprint" data-id="${id}">查看或更新 SSH 指纹</button>
+       <button class="btn subtle" data-action="credentials" data-id="${id}">修改 SSH 登录密码</button>
+       <button class="btn subtle" data-action="host-check" data-id="${id}">测试 SSH 连接</button>
+     </div>`;
+ }else{
+   content=`<div class="server-tab-intro"><h3>编辑或移除服务器</h3><p>修改名称不会影响 VPS。删除只清理本地记录和所选历史，不会卸载远端软件。</p></div>
+     <div class="server-action-grid">
+       <button class="btn primary-soft" data-action="edit-host" data-id="${id}">修改服务器信息</button>
+       <button class="btn danger" data-action="delete-host" data-id="${id}">删除本地服务器记录</button>
+     </div>`;
+ }
+ const header=`<div class="server-console"><div class="server-console-head"><div><span class="server-eyebrow">VPS 工作台</span>
+   <h3>${escapeHtml(host.name)}</h3><p>${escapeHtml(host.username)}@${escapeHtml(host.hostname)}:${host.port}</p></div>
+   <span class="chip ${host.credential_ready?(connected?'success':'warn'):'error'}">${host.credential_ready?(connected?'曾通过环境检测':'待检测'):'需补充登录凭据'}</span></div>
+   <nav class="server-tabs" aria-label="服务器管理分类">${tabs.map(([name,label])=>`<button type="button" class="server-tab ${tab===name?'active':''}" data-action="host-tab" data-id="${id}" data-tab="${name}" aria-current="${tab===name?'page':'false'}">${label}</button>`).join('')}</nav>
+   <div class="server-tab-content">${content}</div></div>`;
+ dialog(modalHead('VPS 服务器控制台',true)+header);
+ if(tab==='network'){
+   refreshFirewallUI(id);
+   el('#server-allow-form')?.addEventListener('submit',async e=>{
+     e.preventDefault();const form=e.currentTarget;const fd=new FormData(form);
+     const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.classList.add('is-loading');
+     const port=Number(fd.get('port')),protocol=String(fd.get('protocol'));
+     toast(`正在为 UFW 放行 ${port}/${protocol}…`);
+     try{const res=await api(`/hosts/${id}/firewall/allow`,{method:'POST',body:JSON.stringify({port,protocol,confirmation:true})});
+        toast(res.mode==='active'?`VPS 本机 UFW 已放行 ${port}/${protocol}；云厂商安全组仍需单独检查`:'UFW 未启用或不可用，无需新增本机规则；仍需检查云安全组');
+        await refreshFirewallUI(id);
+     }catch(err){toast(err.message,true);}finally{if(btn.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}
+   });
+ }
+}
+async function refreshFirewallUI(id){
+ const target=el('#server-firewall-status');if(!target)return;
+ try{const result=await api(`/hosts/${id}/firewall`);
+   if(!target.isConnected)return;
+   const headline={active:'UFW 已启用',inactive:'UFW 未启用',unavailable:'未安装 UFW',unknown:'无法确认 UFW 状态'}[result.status]||'未知状态';
+   target.innerHTML=`<strong>${headline}</strong><pre class="pre">${escapeHtml(result.details)}</pre><p class="helptext">${escapeHtml(result.cloud_notice)}</p>`;
+   const disable=el('[data-action="toggle-ufw"][data-mode="disable"]');
+   const enable=el('[data-action="toggle-ufw"][data-mode="enable"]');
+   if(disable)disable.disabled=result.status!=='active';
+   if(enable)enable.disabled=result.status!=='inactive';
+ }catch(err){if(target.isConnected)target.innerHTML=`<div class="modal-tip warning">${escapeHtml(err.message)}</div>`;}
+}
+function confirmUfwToggle(id,mode){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ const disabling=mode==='disable';
+ const guided=state.setupFlowId===id;
+ if(guided&&disabling&&state.setupFirewallStatus!=='active'){
+   toast('当前 UFW 未处于已启用状态，不需要执行关闭操作；可跳过本步',true);return;
+ }
+ dialog(modalHead(disabling?'关闭 VPS 本机防火墙':'重新启用 VPS 本机防火墙')+`
+   <div class="modal-tip warning"><b>${disabling?'此操作会关闭整台 VPS 的 UFW 本机防火墙。':'重新启用 UFW 前会先放行当前 SSH 端口。'}</b>
+   ${disabling?'所有端口将不再受到 UFW 过滤，可能暴露管理接口或其他服务。云安全组依旧独立生效。':'已有的 UFW 规则和默认拒绝策略将重新生效；某些端口可能再次被拦截。'}
+   请确认正在管理的是 ${escapeHtml(host.name)}（${escapeHtml(host.hostname)}）。</div>
+   ${guided?setupProgress(4):''}
+   <div class="modal-actions"><button class="btn ghost" data-action="${guided?'setup-firewall':'back-host'}" data-id="${id}">取消</button>
+   <button class="btn ${disabling?'danger':'primary'}" data-action="apply-ufw-toggle" data-id="${id}" data-mode="${mode}">
+     ${disabling?'确认关闭 UFW':'确认重新启用 UFW'}</button></div>`);
+}
+async function applyUfwToggle(id,mode){
+ toast('正在通过可信 SSH 切换 UFW 状态…');
+ try{
+   const result=await api(`/hosts/${id}/firewall/toggle`,{method:'POST',
+     body:JSON.stringify({mode,confirmed_risk:true})});
+   const message=result.mode==='inactive'?'UFW 已手动关闭，VPS 本机端口不再受其过滤':'UFW 已重新启用，SSH TCP 端口已预先放行';
+   if(state.setupFlowId===id)setupFirewallResult(id,message);
+   else openHostConsole(id,'network');
+   toast(message+'；云服务商安全组不受影响');
+ }catch(err){toast(err.message,true);}
+}
+async function checkHostInConsole(id){
+ const target=el('.server-tab-content');if(target)target.insertAdjacentHTML('afterbegin','<div class="modal-tip server-check-running">正在通过已验证的 SSH 读取服务器环境…</div>');
+ try{await api(`/hosts/${id}/preflight`,{method:'POST'});await loadAll(true);openHostConsole(id,'overview');toast('连接检测成功，系统信息已更新');}
+ catch(err){el('.server-check-running')?.remove();toast(err.message,true);}
+}
+async function createHostPlan(id,project,panelPort=null,absenceVerified=false,tlsStrategy='https'){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ if(state.setupFlowId===id){state.setupFlowId=null;state.hostPanel={id,tab:'deploy'};}
+ // Always inspect the *live* VPS before an installation, not old task records.
+ if(project==='3x-ui'&&!absenceVerified){
+   toast('正在只读检查现有 3X-UI 安装…');
+   try{
+     const status=await api('/hosts/'+id+'/3x-ui');
+     if(status.installed){await showExistingXui(id,status);return;}
+   }catch(err){toast('无法安全确认现有安装，已阻止覆盖：'+err.message,true);return;}
+ }
+ if(project==='s-ui'){
+   toast('正在只读检查 S-UI 是否已经安装…');
+   try{
+     const status=await api('/hosts/'+id+'/s-ui');
+     if(status.installed){await showExistingSui(id,status);return;}
+   }catch(err){toast('无法安全核对现有 S-UI 安装，已阻止覆盖：'+err.message,true);return;}
+ }
+ if(project==='dockge'){
+   toast('正在只读检查 VPS 上是否已有 Dockge / Dockge Apps…');
+   try{
+     const status=await api('/hosts/'+id+'/dockge');
+     if(status.installed){await showExistingDockge(id,status);return;}
+   }catch(err){toast('无法核对 Dockge Apps 现有安装，已阻止覆盖：'+err.message,true);return;}
+ }
+ if(project==='dockge'&&panelPort===null){
+   chooseHost('dockge');
+   const select=el('#plan-host-id');if(select)select.value=String(id);
+   return;
+ }
+ const existing=state.jobs.find(j=>j.project===project&&j.host_id===id&&
+   (j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&j.plan?.executable&&
+   j.plan?.steps?.length>0&&['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
+ if(existing){showJob(existing.id);toast(existing.status==='planned'?'已有审批方案，直接继续即可':'已有执行中的任务，无需重复创建');return;}
+ if(project==='s-ui'&&panelPort===null){
+   chooseHost('s-ui');
+   const select=el('#plan-host-id');if(select)select.value=String(id);
+   return;
+ }
+ if(project==='3x-ui'&&panelPort===null){
+   const detectedHost=certHost(host);
+   const ip=!host.tls_domain&&(isIpv4Input(host.hostname)||isIpv6Input(host.hostname));
+   const ipv6=isIpv6Input(host.hostname);
+   dialog(modalHead('安装 3X-UI · 自定义面板端口')+`
+     <div class="xui-port-config"><span class="chip" id="xui-cert-mode-chip">${ipv6?'IPv6 VPS · IP / AAAA HTTPS':ip?'公网 IP · 自动申请 IP 证书':'域名 · 自动申请域名证书'}</span>
+       <p>SSH 服务器：${escapeHtml(host.hostname)}。${ipv6?'IPv6 可选择本机 SSH、NPM 或自动 HTTPS。IP 证书有效期约 160 小时；域名需配置正确的 AAAA 记录，并开放 TCP 80 供 ACME 验证。':`默认自动申请 ${ip?"IP":"域名"} 证书；也可让 NPM 统一管理证书。`}</p>
+       <form id="xui-custom-port-form"><div class="form-group">
+         <label>3X-UI 管理端口（可自行修改）</label>
+         <input name="port" type="number" min="1024" max="65535" value="24443" required/>
+         <p class="helptext">允许 1024–65535，不能与 SSH 端口 ${host.port} 相同。程序会预检端口占用。</p>
+       </div><div class="form-group"><label>HTTPS 处理方式</label><select name="tls_strategy">${ipv6?'<option value="local">本机 SSH 隧道访问（默认）</option>':''}<option value="https">自动申请 HTTPS 证书（IPv4 / IPv6 IP 或域名）</option><option value="npm">不申请证书，使用 NPM 反向代理</option></select></div><div class="modal-actions"><button class="btn ghost" type="button" data-action="back-host" data-id="${id}">返回</button>
+         <button class="btn primary" type="submit">生成安装与 HTTPS 方案 →</button></div></form>
+     </div>`);
+   const form=el('#xui-custom-port-form');
+   const syncTlsMode=()=>{
+     const mode=String(new FormData(form).get('tls_strategy')||'https');
+     const chip=el('#xui-cert-mode-chip');
+     if(chip)chip.textContent=mode==='npm'?'NPM 统一 HTTPS · 不申请证书':mode==='local'?'SSH 隧道 · 本机访问':ip?'公网 IP · 自动申请 IP 证书':'域名 · 自动申请域名证书';
+   };
+   form.querySelector('[name="tls_strategy"]')?.addEventListener('change',syncTlsMode);
+   syncTlsMode();
+   form.addEventListener('submit',async e=>{
+     e.preventDefault();const port=Number(new FormData(form).get('port'));
+     if(!Number.isInteger(port)||port<1024||port>65535||port===host.port){
+       toast('端口必须为 1024–65535，且不能与 SSH 端口相同',true);return;
+     }
+     const button=form.querySelector('button[type="submit"]');button.disabled=true;button.classList.add('is-loading');
+     try{await createHostPlan(id,'3x-ui',port,true,String(new FormData(form).get('tls_strategy')||'https'));}
+     finally{if(button.isConnected){button.disabled=false;button.classList.remove('is-loading');}}
+   });
+   return;
+ }
+ toast('正在检测 VPS 并生成部署计划…');
+ try{
+   const payload={host_id:id,project};
+   if(project==='3x-ui'){payload.panel_port=panelPort;payload.access_mode=tlsStrategy;}
+   if(project==='s-ui')payload.access_mode=tlsStrategy;
+   const job=await api('/jobs',{method:'POST',body:JSON.stringify(payload)});
+   state.activeJob=null;await loadAll(true);
+   if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);
+   showJob(job.id);
+ }catch(err){toast(err.message,true);}
+}
+
+async function showExistingDockge(id,known=null){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.hostPanel={id,tab:'deploy'};state.activeJob=null;
+ dialog(modalHead('Dockge Apps · 面板状态')+'<div class="xui-loading"><span class="inline-spinner"></span>正在核验 Docker 实际端口映射和访问方式…</div>');
+ try{
+   const status=known||await api('/hosts/'+id+'/dockge');
+   if(!status.installed){
+     dialog(modalHead('Dockge Apps · 未安装')+'<div class="modal-tip">可自动安装 Docker 及 Dockge Apps。管理端口留空将随机生成。</div>'+
+       '<div class="modal-actions"><button class="btn primary" data-action="server-install" data-id="'+id+'" data-project="dockge">生成安装方案 →</button>'+
+       '<button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button></div>');
+     return;
+   }
+   if(!status.managed||status.service!=='active'||!['local','public'].includes(status.access_mode)){
+     dialog(modalHead('Dockge Apps · 状态需检查')+
+       '<div class="modal-tip warning">检测到现有 Dockge，但无法核实受管理安装、容器端口或运行状态。不会覆盖已有容器与账号信息；请从 VPS 控制台检查 Docker。</div>'+
+       '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回</button></div>');
+     return;
+   }
+   const access=await api('/hosts/'+id+'/dockge/access');
+   const direct=access.access_mode==='public'&&access.direct_url;
+   const actual=direct||access.local_url;
+   const row=(label,field,value,action)=>'<div class="xui-info-row"><label>'+label+'</label>'+
+     '<input id="'+field+'" readonly autocomplete="off" value="'+escapeHtml(value)+'"/>'+
+     '<button type="button" class="btn subtle" data-action="'+action+'">复制</button></div>';
+   dialog(modalHead('Dockge Apps · 管理面板')+
+     '<section class="xui-existing"><div class="xui-existing-state"><span class="chip success">已安装 · 正常运行</span>'+
+     '<span class="chip">'+escapeHtml(access.port)+'/TCP · '+(direct?'服务器 IP 直连':'仅 SSH 隧道')+'</span></div>'+
+     '<h3>Dockge Apps 已安装，无需重新部署</h3>'+
+     '<div class="modal-tip '+(direct?'warning':'')+'">'+(direct?
+       '公网模式是未加密 HTTP，且 Dockge 具有 Docker Socket 高权限。请确保已设置管理员并在云安全组只允许自己的管理 IP；如果打不开，检查云厂商入站 TCP '+escapeHtml(access.port)+'。':
+       '管理页当前只监听 VPS 本机。先在 Dockge 创建管理员，再根据需要开启公网 IP + 端口直连。')+'</div>'+
+     '<div class="xui-info-grid">'+
+       row(direct?'服务器公网管理地址':'本机管理地址','dockge-url',actual,'copy-dockge-url')+
+       (direct?'':row('Windows PowerShell SSH 隧道','dockge-tunnel',access.ssh_tunnel,'copy-dockge-tunnel'))+
+     '</div>'+
+     '<p class="helptext">Dockge Apps 包含 Nginx Proxy Manager、IT-Tools、MyIP 应用中心，可在其中编辑应用端口；NetDeploy 不预设管理员密码。</p>'+
+     '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button>'+
+       '<button class="btn subtle" data-action="dockge-config" data-id="'+id+'">修改端口与访问方式</button>'+
+       '<a class="btn primary" href="'+escapeHtml(actual)+'" target="_blank" rel="noopener noreferrer">'+
+         (direct?'打开公网 Dockge Apps ↗':'打开本机 Dockge Apps ↗')+'</a></div></section>');
+ }catch(err){
+   dialog(modalHead('Dockge Apps · 状态读取失败')+
+     '<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>'+
+     '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回</button></div>');
+   toast(err.message,true);
+ }
+}
+async function configureDockgeAccess(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ try{
+   const status=await api('/hosts/'+id+'/dockge');
+   if(!status.managed||status.service!=='active'||!['local','public'].includes(status.access_mode)){
+     toast('只支持修改已验证且运行中的受管理 Dockge Apps',true);return;
+   }
+   dialog(modalHead('Dockge Apps · 更改访问设置')+
+     '<div class="modal-tip warning">本操作只修改当前容器端口映射，不重新安装 Docker 或 Dockge。启用公网 HTTP 前请在 Dockge 中创建强管理员密码，务必限制云安全组来源 IP。</div>'+
+     '<form id="dockge-access-form"><div class="form-group"><label>宿主机端口（留空随机）</label>'+
+       '<input name="port" type="number" min="1024" max="65535" value="'+escapeHtml(status.port)+'"/>'+
+       '<p class="helptext">清空输入即可随机分配 20000–59999；不修改容器内部 5001。</p></div>'+
+     '<div class="form-group"><label>访问方式</label><select name="mode">'+
+       '<option value="local" '+(status.access_mode==='local'?'selected':'')+'>仅 SSH 隧道（本机安全访问）</option>'+
+       '<option value="public" '+(status.access_mode==='public'?'selected':'')+'>服务器 IP + 端口（公网 HTTP）</option>'+
+     '</select></div>'+
+     '<label class="helptext"><input type="checkbox" name="confirm_public" value="yes"/> 我确认已初始化管理员，了解公网 HTTP 和 Docker 高权限风险，并会限制防火墙来源 IP。</label>'+
+     '<div class="modal-actions"><button type="button" class="btn subtle" data-action="installed-dockge" data-id="'+id+'">返回</button>'+
+       '<button type="submit" class="btn primary">生成端口修改方案 →</button></div></form>');
+   const form=el('#dockge-access-form');
+   form.addEventListener('submit',async e=>{
+     e.preventDefault();
+     const fd=new FormData(form),raw=String(fd.get('port')||'').trim();
+     const payload={host_id:id,project:'dockge-access',access_mode:String(fd.get('mode')||'local'),
+       confirm_public:fd.get('confirm_public')==='yes'};
+     if(raw){const n=Number(raw);if(!Number.isInteger(n)||n<1024||n>65535){toast('端口必须为 1024–65535',true);return;}payload.panel_port=n;}
+     if(payload.access_mode==='public'&&!payload.confirm_public){toast('公网访问必须先确认已设置管理员并接受风险',true);return;}
+     const btn=form.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
+     try{
+       const job=await api('/jobs',{method:'POST',body:JSON.stringify(payload)});
+       await loadAll(true);if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);
+       showJob(job.id);
+     }catch(err){toast(err.message,true);}finally{if(btn?.isConnected)btn.disabled=false;}
+   });
+ }catch(err){toast(err.message,true);}
+}
+async function showExistingSui(id,known=null){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.hostPanel={id,tab:'deploy'};state.activeJob=null;
+ dialog(modalHead('S-UI · 已安装面板')+'<div class="xui-loading"><span class="inline-spinner"></span>正在通过可信 SSH 验证 S-UI 监听与 HTTPS…</div>');
+ try{
+   const status=known||await api('/hosts/'+id+'/s-ui');
+   if(!status.installed){
+     dialog(modalHead('S-UI · 尚未安装')+
+       '<div class="modal-tip">未检测到 S-UI；新安装可以一次完成证书签发与 HTTPS。</div>'+
+       '<div class="modal-actions"><button class="btn primary" data-action="server-install" data-id="'+id+'" data-project="s-ui">生成安装与 HTTPS 方案 →</button>'+
+       '<button class="btn ghost" data-action="back-host" data-id="'+id+'">返回</button></div>');
+     return;
+   }
+   const secure=status.access_mode==='https',local=status.access_mode==='local';
+   const npmManaged=local&&state.jobs.some(j=>j.project==='s-ui'&&j.host_id===id&&j.status==='completed'&&j.plan?.options?.access_mode==='npm');
+   if(status.service!=='active'||!status.managed||(!local&&!secure)){
+     dialog(modalHead('S-UI · 状态需要检查')+
+       '<div class="modal-tip warning">检测到 S-UI，但服务、受保护安装记录、HTTPS 证书或监听尚未验证。为保护现有数据，不会覆盖重装或猜测密码。请通过 VPS 控制台核对 systemctl status s-ui 和证书状态。</div>'+
+       '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回</button></div>');
+     return;
+   }
+   const details=await api('/hosts/'+id+'/s-ui/access');
+   const row=(label,field,value,action)=>'<div class="xui-info-row"><label>'+label+'</label>'+
+     '<input id="'+field+'" readonly autocomplete="off" value="'+escapeHtml(value)+'"/>'+
+     '<button type="button" class="btn subtle" data-action="'+action+'">复制</button></div>';
+   const url=details.direct_url||details.local_url;
+   const credentials='<div class="xui-info-grid">'+
+      row(secure?'可信 HTTPS 面板地址':'本地面板地址','sui-url',url,'copy-sui-url')+
+      row('初始管理员用户名','sui-username',details.username,'copy-sui-username')+
+      '<div class="xui-info-row"><label>初始管理员密码</label>'+
+        '<input id="sui-password" type="password" readonly autocomplete="off" value="'+escapeHtml(details.password)+'"/>'+
+        '<button type="button" class="btn subtle" data-action="toggle-sui-password">显示 / 隐藏</button>'+
+        '<button type="button" class="btn subtle" data-action="copy-sui-password">复制密码</button></div>'+
+      (details.ssh_tunnel?row('PowerShell SSH 隧道命令','sui-tunnel',details.ssh_tunnel,'copy-sui-tunnel'):'')+
+      '</div>';
+   const accessNote=secure?
+     '<p class="xui-existing-meta">证书已验证：'+escapeHtml(details.certificate_identity)+' · 管理端口 2095/TCP · 订阅端口 2096 仅本机。公网访问还需确认云安全组入站。</p>':
+     (npmManaged?'<p class="xui-existing-meta">S-UI 已选择 NPM 统一 HTTPS：本机 HTTP 上游是 127.0.0.1:2095。NPM Docker 容器需使用 host 网络模式，不需要此面板申请证书或占用 TCP 80。</p>':'<p class="xui-existing-meta">管理端口 2095/TCP 目前仅 127.0.0.1 可访问；可继续签发 IP/域名证书，无需重新安装 S-UI。</p>');
+   const upgrade=local&&!npmManaged?'<button type="button" class="btn primary" data-action="sui-upgrade" data-id="'+id+'">继续完成 HTTPS →</button>':local?'<span class="xui-note">请在 NPM 中设置 Proxy Host：HTTP / 127.0.0.1 / 2095，并在 NPM 申请域名 SSL</span>':
+     '<a class="btn primary" href="'+escapeHtml(details.direct_url)+'" rel="noopener noreferrer" target="_blank">直接打开 HTTPS 面板 ↗</a>';
+   dialog(modalHead('S-UI · 已安装面板')+
+     '<section class="xui-existing"><div class="xui-existing-state"><span class="chip success">已安装 · 运行正常</span><span class="chip">'+
+     (secure?'已验证 HTTPS':'仅 VPS 本机访问')+'</span></div>'+
+     '<h3>S-UI 已安装，无需重复部署</h3>'+accessNote+credentials+
+     '<p class="helptext">初始账号和密码仅在主动查看时从 VPS 读取，不写任务日志；如已在 S-UI 修改密码，请使用当前密码。管理地址建议限制为固定管理 IP。</p>'+
+     '<div class="modal-actions"><button type="button" class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button>'+upgrade+'</div></section>');
+ }catch(err){
+   dialog(modalHead('S-UI · 无法读取面板信息')+
+     '<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>'+
+     '<div class="modal-actions"><button type="button" class="btn subtle" data-action="back-host" data-id="'+id+'">返回</button></div>');
+   toast(err.message,true);
+ }
+}
+async function suiUpgrade(id){
+ const existing=state.jobs.find(j=>j.project==='s-ui-https'&&j.host_id===id&&
+    ['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
+ if(existing){showJob(existing.id);toast('已有 S-UI HTTPS 配置任务，直接继续即可');return;}
+ try{
+   toast('正在检查现有 S-UI 的本机监听与 HTTPS 证书条件…');
+   const job=await api('/jobs',{method:'POST',body:JSON.stringify({host_id:id,project:'s-ui-https'})});
+   state.activeJob=null;await loadAll(true);
+   if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);
+   showJob(job.id);toast('S-UI HTTPS 方案已生成，不重复安装面板，请审核后批准');
+ }catch(err){toast(err.message,true);}
+}
+
+async function showExistingXui(id,known=null){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.hostPanel={id,tab:'deploy'};state.activeJob=null;
+ dialog(modalHead('3X-UI · 现有面板')+'<div class="xui-loading"><span class="inline-spinner"></span>正在通过已验证的 SSH 读取当前面板状态…</div>');
+ try{
+   const status=known||await api('/hosts/'+id+'/3x-ui');
+   if(!status.installed){
+     dialog(modalHead('3X-UI · 尚未安装')+'<section class="xui-existing"><span class="chip warn">未安装</span>' +
+       '<h3>这台 VPS 还没有 3X-UI</h3><p>可生成一次安装方案，包含后续 HTTPS 配置。</p>' +
+       '<div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="'+id+'">返回</button>' +
+       '<button class="btn primary" data-action="install-new-xui" data-id="'+id+'">创建安装方案 →</button></div></section>');
+     return;
+   }
+   const active=status.service==='active', managed=status.managed;
+   const local=status.access_mode==='local', https=status.access_mode==='https';
+   const http=status.access_mode==='http';
+   const npmManaged=(local||http)&&state.jobs.some(j=>j.project==='3x-ui'&&j.host_id===id&&j.status==='completed'&&j.plan?.options?.access_mode==='npm');
+   let content='';
+   if(active&&managed&&(local||https||http)){
+     try{
+       const result=await api('/hosts/'+id+'/3x-ui/access');
+       const url=result.direct_url||result.local_url;
+       const urlLink=result.direct_url?
+         '<a class="btn primary" href="'+escapeHtml(result.direct_url)+'" rel="noopener noreferrer" target="_blank">直接打开 '+(result.access_mode==='http'?'HTTP':'HTTPS')+' 面板 ↗</a>':
+         '<span class="xui-note">当前仅监听 VPS 本机。可在审批后启用公网 HTTP 或申请 HTTPS。</span>';
+       content='<div class="xui-info-grid">'+
+         '<div class="xui-info-row"><label>面板地址</label><input id="xui-url" readonly autocomplete="off" value="'+escapeHtml(url)+'"/>' +
+           '<button class="btn subtle" data-action="copy-xui-url">复制地址</button>'+urlLink+'</div>'+
+         '<div class="xui-info-row"><label>初始管理员用户名</label><input id="xui-username" readonly autocomplete="off" value="'+escapeHtml(result.username)+'"/>' +
+           '<button class="btn subtle" data-action="copy-xui-username">复制用户名</button></div>'+
+         '<div class="xui-info-row"><label>初始管理员密码</label><input id="xui-password" type="password" readonly autocomplete="off" value="'+escapeHtml(result.password)+'"/>' +
+           '<button class="btn subtle" data-action="toggle-xui-password">显示 / 隐藏</button>'+
+           '<button class="btn subtle" data-action="copy-xui-password">复制密码</button></div>';
+       if(result.ssh_tunnel&&!npmManaged){
+         content+='<div class="xui-info-row"><label>本机访问需要的 SSH 隧道命令</label><code class="xui-tunnel">'+escapeHtml(result.ssh_tunnel)+'</code>'+
+           '<textarea id="xui-tunnel" hidden>'+escapeHtml(result.ssh_tunnel)+'</textarea>'+
+           '<button class="btn subtle" data-action="copy-xui-tunnel">复制 SSH 命令</button></div>';
+       }
+       content+='</div><p class="helptext">上述凭据来自安装时的受保护记录；若曾在 3X-UI 中修改账号密码，当前设置可能不同。</p>';
+     }catch(err){content='<div class="modal-tip warning">检测到已安装面板，但初始凭据无法安全读取：'+escapeHtml(err.message)+'。不会重装或猜测密码。</div>';}
+   }else if(!managed){
+     content='<div class="modal-tip">已安装 3X-UI，但没有可信的初始化记录，暂无法读取管理员密码或准确访问路径。'+
+       '请在 VPS 云厂商控制台执行 <code>x-ui settings</code> 查看或更新当前登录信息；不会覆盖安装。</div>';
+   }else if(!active){
+     content='<div class="modal-tip warning">检测到 3X-UI，但服务未运行。可在 VPS 控制台执行 <code>systemctl status x-ui</code> 排查。</div>';
+   }else{
+     content='<div class="modal-tip warning">已安装面板的监听地址或 TLS 证书尚未通过校验，不能生成不安全的直连链接。</div>';
+   }
+   const scheme=https?'已验证 HTTPS':http?'NPM 上游 / 公网 HTTP 直连':npmManaged?'NPM 上游（本机 HTTP）':local?'本机监听 / SSH 隧道':'访问方式待核验';
+   const httpUpgrade=active&&managed&&local?'<button class="btn subtle" data-action="xui-public-http" data-id="'+id+'">开启公网 HTTP（不申请证书）</button>':'';
+   const upgrade=active&&managed&&local&&!npmManaged?
+     '<button class="btn primary" data-action="existing-xui-https" data-id="'+id+'">继续完成 HTTPS →</button>':'';
+   const html=modalHead('3X-UI · 已安装面板')+'<section class="xui-existing">'+
+     '<div class="xui-existing-state"><span class="chip '+(active?'success':'warn')+'">已安装'+(active?' · 正在运行':' · 服务未运行')+'</span>'+
+      (managed?'<span class="chip">安装记录可读取</span>':'<span class="chip warn">原始凭据未找到</span>')+'</div>'+
+     '<h3>3X-UI 已安装，无需重新部署</h3><p>查看面板信息属于只读操作，不需要安装审批。</p>'+
+     (status.port?'<p class="xui-existing-meta">安装端口：'+status.port+' / TCP · '+scheme+'</p>':'')+
+     (npmManaged?'<div class="modal-tip"><b>NPM 上游配置</b>：Forward Scheme 为 http；Forward Host 为 127.0.0.1；Forward Port 为 '+escapeHtml(status.port)+'。NPM 容器须使用 host 网络模式并开启 WebSockets Support。SSL 证书由 NPM 申请。</div>':'')+
+     (npmManaged&&local?'<div class="modal-tip warning">当前是旧版本安装的本机 HTTP 面板，必须先审核并执行下方「开启公网 HTTP」任务，才能使用公网 IP + 端口直接访问。这里不显示无法直接使用的本机地址作为公网链接。</div>':'')+
+     (http?'<div class="modal-tip warning"><b>公网 HTTP 是明文访问。</b>面板已验证监听所选 TCP 端口，但云安全组仍须单独放行并限制为自己的管理 IP。建议通过 NPM 的 HTTPS 域名登录，避免泄露管理员密码。</div>':'')+
+     content+'<div class="modal-actions xui-existing-actions"><button class="btn ghost" data-action="back-host" data-id="'+id+'">返回服务器</button>'+httpUpgrade+upgrade+'</div></section>';
+   dialog(html);
+ }catch(err){
+   dialog(modalHead('无法读取现有 3X-UI')+'<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>'+
+     '<div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="'+id+'">返回</button></div>');
+   toast(err.message,true);
+ }
+}
+async function enableXuiHttp(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ toast('正在验证现有 3X-UI 监听状态，准备公网 HTTP 审批方案…');
+ try{
+   const existing=state.jobs.find(j=>j.project==='3x-ui-http'&&j.host_id===id&&
+     ['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
+   if(existing){showJob(existing.id);return;}
+   const job=await api('/jobs',{method:'POST',body:JSON.stringify({host_id:id,project:'3x-ui-http'})});
+   await loadAll(true);if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);
+   showJob(job.id);
+ }catch(err){toast(err.message,true);}
+}
+async function continueExistingXuiHttps(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ const pending=state.jobs.find(j=>j.project==='3x-ui-https'&&j.host_id===id&&
+   (j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&j.plan?.executable&&j.plan?.steps?.length>0&&
+   ['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
+ if(pending){showJob(pending.id);return;}
+ toast('正在检查当前端口并生成 HTTPS 续接方案…');
+ try{
+   const job=await api('/jobs',{method:'POST',body:JSON.stringify({host_id:id,project:'3x-ui-https'})});
+   state.activeJob=null;await loadAll(true);
+   if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);
+   showJob(job.id);
+ }catch(err){toast(err.message,true);}
+}
+function authSelect(current='password',remembered=false) {
+ const native=state.capabilities.secure_password_storage;
+ const rememberUI=native
+   ? `<label class="check"><input type="checkbox" name="remember_password" ${remembered?'checked':''}/> 保存到 Windows 系统凭据库（以后更新、重启免输密码）</label>`
+   : '<div class="modal-tip">此设备没有可用的 Windows 凭据保管库，密码仅保存在当前进程内存；建议使用 SSH 密钥登录。</div>';
+ return `<div class="form-group"><label>SSH 登录方式</label><select name="auth_mode" id="auth-mode"><option value="password" ${current==='password'?'selected':''}>SSH 密码登录</option><option value="key" ${current==='key'?'selected':''}>SSH 私钥登录</option></select></div>
+ <div class="form-group" id="password-field" ${current==='key'?'hidden':''}><label>SSH 登录密码</label><input id="ssh-password" type="password" name="password" maxlength="1024" autocomplete="new-password" placeholder="输入 VPS SSH 登录密码" ${current==='password'?'required':''}/>${rememberUI}</div>`;
+}
+function enableAuthToggle(){
+ const select=el('#auth-mode');const password=el('#ssh-password');const field=el('#password-field');
+ function toggle(){field.hidden=select.value!=='password';password.required=select.value==='password';if(select.value!=='password')password.value='';}
+ select.addEventListener('change',toggle);toggle();
+}
+function isIpv4Input(value){const parts=String(value||'').split('.');return parts.length===4&&parts.every(v=>/^\d{1,3}$/.test(v)&&String(Number(v))===v&&Number(v)<=255);}
+function isIpv6Input(value){const v=String(value||'').trim();return v.includes(':')&&/^[0-9a-fA-F:.]+$/.test(v)&&v.split(':').length>=3&&!v.includes(':::');}
+function isSshIpInput(value){return isIpv4Input(value)||isIpv6Input(value);}
+function displayIpHost(value){return isIpv6Input(value)?'['+value+']':value;}
+function certHost(host){return host.tls_domain||host.hostname;}
+function certLabel(host){return isIpv6Input(host.hostname)?(host.tls_domain?'IPv6 SSH · 域名证书（DNS AAAA）':'IPv6 SSH · 短期 IP 证书（160 小时）'):host.tls_domain||!isIpv4Input(host.hostname)?`域名证书 · ${escapeHtml(certHost(host))}`:`IP 证书 · ${escapeHtml(host.hostname)}`;}
+function setupProgress(step){
+ const steps=['服务器信息','SSH 指纹','连接检测','网络端口','选择软件'];
+ return `<ol class="setup-progress" aria-label="服务器添加进度">${steps.map((text,i)=>`<li class="${i+1===step?'current':i+1<step?'finished':''}" ${i+1===step?'aria-current="step"':''}>
+   <span class="setup-step-number">${i+1<step?'✓':i+1}</span><span>${text}</span></li>`).join('')}</ol>`;
+}
+async function beginServerSetup(id){
+ state.setupFlowId=id;
+ state.hostPanel={id,tab:'overview'};
+ await fingerprint(id);
+}
+async function setupPreflight(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.setupFlowId=id;
+ dialog(modalHead('第 3 步 · 检查 SSH 与系统')+setupProgress(3)+
+  '<div class="setup-loading"><span class="inline-spinner" aria-hidden="true"></span>正在使用已验证的 SSH 指纹登录并检测系统…</div>');
+ try{
+   const checked=await api(`/hosts/${id}/preflight`,{method:'POST'});
+   await loadAll(true);
+   if(state.setupFlowId!==id)return;
+   const facts=checked.facts||{};
+   dialog(modalHead('第 3 步 · 连接检测通过')+setupProgress(3)+
+    `<section class="setup-result"><span class="chip success">SSH 已验证 · 连接成功</span>
+      <h3>${escapeHtml(checked.name)} 已准备好</h3>
+      <p>${escapeHtml(facts.OS_ID||'Linux')} · ${escapeHtml(facts.OS_VERSION||'')} · ${escapeHtml(facts.ARCH||'未知架构')}</p>
+      <p>${certLabel(state.hosts.find(h=>h.id===id)||checked)}；创建部署方案时仍会自动进行安全复核。</p></section>
+    <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">稍后操作</button>
+      <button class="btn primary" data-action="setup-firewall" data-id="${id}">下一步：端口与防火墙（可跳过） →</button></div>`);
+   toast('SSH 连接及服务器环境检测通过');
+ }catch(err){
+   dialog(modalHead('连接检测未通过')+setupProgress(3)+
+     `<div class="modal-tip warning">${escapeHtml(err.message)}</div>
+      <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">返回服务器</button>
+       <button class="btn subtle" data-action="credentials" data-id="${id}">修改 SSH 密码</button>
+       <button class="btn primary" data-action="setup-retry" data-id="${id}">重试连接检测</button></div>`);
+   toast(err.message,true);
+ }
+}
+
+function setupPortRow(port='',protocol='tcp'){
+ return `<div class="setup-port-row" data-setup-port-row>
+   <div class="form-group"><label>端口</label>
+     <input name="port" type="number" inputmode="numeric" min="1" max="65535" required
+       placeholder="例如：8443" value="${escapeHtml(port)}"/></div>
+   <div class="form-group"><label>协议</label>
+     <select name="protocol"><option value="tcp" ${protocol==='tcp'?'selected':''}>TCP</option>
+       <option value="udp" ${protocol==='udp'?'selected':''}>UDP</option></select></div>
+   <button class="btn ghost setup-remove-port" type="button" data-action="setup-remove-port" aria-label="删除这一行端口">删除</button>
+ </div>`;
+}
+function setupPortCount(){
+ const rows=el('#setup-port-rows');
+ const count=rows?.querySelectorAll('[data-setup-port-row]').length||0;
+ const indicator=el('#setup-port-count');
+ if(indicator)indicator.textContent=`已添加 ${count} / 20 个端口`;
+ return count;
+}
+function addSetupPort(){
+ const rows=el('#setup-port-rows');if(!rows)return;
+ if(setupPortCount()>=20){toast('每次最多添加 20 个端口，请分批操作',true);return;}
+ rows.insertAdjacentHTML('beforeend',setupPortRow());
+ setupPortCount();
+ rows.querySelector('[data-setup-port-row]:last-child input[name="port"]')?.focus();
+}
+function removeSetupPort(button){
+ const row=button.closest('[data-setup-port-row]');
+ if(!row)return;
+ if(setupPortCount()<=1){toast('请至少保留一个端口输入框，或直接跳过此步',true);return;}
+ row.remove();setupPortCount();
+}
+function collectSetupPorts(form){
+ const data=new FormData(form),ports=data.getAll('port'),protocols=data.getAll('protocol');
+ if(!ports.length||ports.length>20||protocols.length!==ports.length)
+   throw Error('请添加 1–20 条完整端口规则');
+ const seen=new Set();
+ return ports.map((raw,i)=>{
+   const value=String(raw).trim(),protocol=String(protocols[i]).toLowerCase();
+   const port=Number(value);
+   if(!/^\d+$/.test(value)||!Number.isInteger(port)||port<1||port>65535)
+     throw Error(`第 ${i+1} 行端口不合法，请填写 1–65535 的整数`);
+   if(!['tcp','udp'].includes(protocol))
+     throw Error(`第 ${i+1} 行协议不合法，只能选择 TCP 或 UDP`);
+   const key=port+'/'+protocol;
+   if(seen.has(key))throw Error(`第 ${i+1} 行端口 ${key} 已重复；同一个端口可以分别选择 TCP 和 UDP`);
+   seen.add(key);
+   return {port,protocol};
+ });
+}
+async function submitSetupPorts(id,rules,submit=null){
+ if(state.setupFirewallBusy){toast('端口操作正在执行，请勿重复提交',true);return;}
+ if(state.setupFlowId!==id)return;
+ state.setupFirewallBusy=true;
+ if(submit){submit.disabled=true;submit.classList.add('is-loading');}
+ const next=el('[data-action="setup-projects"]');if(next)next.disabled=true;
+ toast(`正在依次放行 ${rules.length} 个端口…`);
+ try{
+   const result=await api(`/hosts/${id}/firewall/allow-batch`,{
+     method:'POST',body:JSON.stringify({rules,confirmation:true})
+   });
+   if(state.setupFlowId===id){
+     setupFirewallResult(id,result);
+     toast(result.failed?
+       `${result.allowed} 个端口已放行，${result.failed} 个失败；可仅重试失败项`:
+       result.mode==='active'?`已成功放行 ${result.allowed} 个端口`:
+       'UFW 未启用或不可用：没有更改本机防火墙规则',result.failed>0);
+   }
+ }catch(err){
+   const box=el('#setup-port-error');
+   if(box)box.textContent='⚠ '+err.message+'；如网络连接中断，请先检查 VPS 现有规则，不要盲目重复提交';
+   toast(err.message,true);
+ }finally{
+   state.setupFirewallBusy=false;
+   if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}
+   if(next?.isConnected)next.disabled=false;
+ }
+}
+async function retryFailedSetupPorts(id){
+ const rules=state.setupFailedFirewallRules||[];
+ if(state.setupFlowId!==id||!rules.length)return;
+ await submitSetupPorts(id,rules);
+}
+
+function setupFirewallResult(id,message){
+ const host=state.hosts.find(h=>h.id===id);if(!host||state.setupFlowId!==id)return;
+
+ if(message&&typeof message==='object'&&Array.isArray(message.results)){
+   const result=message;
+   state.setupFailedFirewallRules=result.results.filter(x=>x.status==='failed')
+     .map(x=>({port:x.port,protocol:x.protocol}));
+   const headline=result.failed?
+     `已放行 ${result.allowed} 项，失败 ${result.failed} 项`:
+     result.mode==='active'?`已放行 ${result.allowed} 个端口`:
+     'UFW 未启用或未安装，端口规则未修改';
+   const statusText={allowed:'已放行',failed:'失败',skipped:'未修改'};
+   const rows=result.results.map(x=>
+      `<li class="setup-port-result ${x.status==='allowed'?'allowed':x.status==='failed'?'failed':'skipped'}">
+       <strong>${escapeHtml(x.port)}/${escapeHtml(x.protocol.toUpperCase())}</strong>
+       <span>${statusText[x.status]||'未验证'}</span></li>`).join('');
+   dialog(modalHead('第 4 步 · 批量端口放行结果')+setupProgress(4)+
+     `<section class="setup-result">
+        <span class="chip ${result.failed?'warn':'success'}">${result.failed?'部分端口未放行':'网络步骤已完成'}</span>
+        <h3>${escapeHtml(headline)}</h3>
+        <p>${escapeHtml(result.cloud_notice||'仅修改本机 UFW；云厂商安全组需要另外设置')}</p>
+        <ul class="setup-port-results">${rows}</ul>
+        ${result.failed?'<p class="setup-batch-warning">失败的端口没有被视为成功。仅重试失败项，不会重复提交已放行端口。</p>':''}
+      </section>
+      <div class="modal-actions">
+       <button type="button" class="btn subtle" data-action="setup-firewall" data-id="${id}">返回网络设置</button>
+       ${result.failed?`<button type="button" class="btn primary-soft" data-action="setup-retry-failed" data-id="${id}">仅重试失败的 ${result.failed} 项</button>`:''}
+       <button type="button" class="btn primary" data-action="setup-projects" data-id="${id}">下一步：选择软件 →</button>
+      </div>`);
+   return;
+ }
+ dialog(modalHead('第 4 步 · 网络设置完成')+setupProgress(4)+
+  `<section class="setup-result"><span class="chip success">网络步骤已完成</span>
+    <h3>${escapeHtml(message)}</h3>
+    <p>仅操作 VPS 自身的 UFW；云服务商安全组仍需另行允许相应入站端口。</p></section>
+    <div class="modal-actions"><button type="button" class="btn subtle" data-action="setup-firewall" data-id="${id}">返回网络设置</button>
+    <button type="button" class="btn primary" data-action="setup-projects" data-id="${id}">下一步：选择软件 →</button></div>`);
+}
+function cloudFirewallHelp(){return `<details class="cloud-firewall-help">
+      <summary>云厂商安全组 · 快速打开官方控制台（可选）</summary>
+      <p>仅本机 UFW 放行，不代表云防火墙已放行。打开你购买 VPS 的云控制台，选择正确地域与实例，找到关联的安全组或 VPC 入站规则。</p>
+      <div class="cloud-provider-links">
+        <a href="https://ecs.console.aliyun.com/" target="_blank" rel="noopener noreferrer" aria-label="打开阿里云 ECS 控制台安全组">阿里云 ECS <span>安全组 ↗</span></a>
+        <a href="https://console.cloud.tencent.com/cvm/securitygroup" target="_blank" rel="noopener noreferrer" aria-label="打开腾讯云 CVM 安全组控制台">腾讯云 CVM <span>安全组 ↗</span></a>
+        <a href="https://console.cloud.google.com/networking/firewalls/list" target="_blank" rel="noopener noreferrer" aria-label="打开 Google Cloud VPC 防火墙控制台">Google Cloud <span>VPC 防火墙 ↗</span></a>
+        <a href="https://console.aws.amazon.com/ec2/" target="_blank" rel="noopener noreferrer" aria-label="打开 AWS EC2 控制台">AWS EC2 <span>Security Groups ↗</span></a>
+      </div>
+      <p class="cloud-security-note">按实际需要添加 <strong>入站</strong> TCP/UDP 规则；SSH 与管理面板端口建议只允许你的固定管理 IP。登录状态、地域和云账号仍由各平台负责，NetDeploy 不代你修改云安全组。</p>
+      <p class="helptext">如果登录后停留在首页：阿里云在「网络与安全 → 安全组」，AWS 在 EC2 左侧选择 Security Groups。请确认地域和实例。</p>
+    </details>`;}
+
+async function setupFirewall(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.setupFlowId=id;state.setupFirewallStatus='unknown';
+ state.hostPanel={id,tab:'network'};
+ dialog(modalHead('第 4 步 · 端口与防火墙（可跳过）')+setupProgress(4)+
+  `<div class="server-tab-intro"><h3>按需放行端口，或选择跳过</h3>
+    <p>推荐只放行需要的 TCP/UDP 端口，例如 HTTPS 验证使用 TCP 80。无需安装前关闭防火墙；也可以直接跳过。下方只修改 VPS 本机 UFW，云厂商安全组仍需单独设置。</p></div>
+    <div class="server-status-panel" id="setup-firewall-status" role="status">
+      <span class="inline-spinner" aria-hidden="true"></span> 正在只读检查 VPS 的 UFW 状态…</div>
+    <form id="setup-allow-form"><div class="setup-port-form-heading"><strong>需要放行的端口</strong>
+      <span id="setup-port-count">已添加 1 / 20 个端口</span></div>
+      <div id="setup-port-rows" class="setup-port-rows">${setupPortRow('80','tcp')}</div>
+      <p id="setup-port-error" class="setup-port-error" role="alert" aria-live="assertive"></p>
+      <div class="setup-port-actions">
+        <button type="button" class="btn subtle" data-action="setup-add-port">＋ 添加端口</button>
+        <button class="btn primary-soft" type="submit">一次放行全部端口</button>
+      </div>
+      <p class="helptext">可添加最多 20 项。每项单独选择 TCP/UDP；相同端口与协议自动检查重复。</p>
+    </form>
+    ${cloudFirewallHelp()}
+    <div class="firewall-toggle-panel"><h4>高级操作：关闭整台 VPS 的本机防火墙</h4>
+      <p>此操作会停止 UFW 对所有端口的过滤，可能让管理服务暴露公网；仅在你明确需要时操作。关闭前还会再次确认风险。</p>
+      <div class="firewall-toggle-actions"><button type="button" class="btn danger" data-action="toggle-ufw" data-mode="disable" data-id="${id}" disabled>关闭 UFW（需确认风险）</button></div></div>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-action="back-host" data-id="${id}">稍后操作</button>
+      <button type="button" class="btn primary" data-action="setup-projects" data-id="${id}">跳过此步，下一步：选择软件 →</button></div>`);
+ const form=el('#setup-allow-form');
+ form?.addEventListener('submit',async e=>{
+   e.preventDefault();
+   if(state.setupFlowId!==id){toast('当前引导步骤已经变化，请重新打开网络设置',true);return;}
+   let rules;
+   try{
+     rules=collectSetupPorts(form);
+     const error=el('#setup-port-error');if(error)error.textContent='';
+   }catch(err){
+     const error=el('#setup-port-error');if(error)error.textContent=err.message;
+     toast(err.message,true);return;
+   }
+   await submitSetupPorts(id,rules,form.querySelector('button[type="submit"]'));
+ });
+ try{
+   const status=await api(`/hosts/${id}/firewall`);
+   const target=el('#setup-firewall-status');
+   if(state.setupFlowId!==id||!target)return;
+   state.setupFirewallStatus=status.status;
+   const statusText={active:'UFW 正在运行',inactive:'UFW 未启用，当前无需放行本机端口',unavailable:'未安装 UFW，无本机 UFW 规则需修改',unknown:'当前 UFW 状态不明确'}[status.status]||'无法识别状态';
+   target.innerHTML=`<strong>${escapeHtml(statusText)}</strong><p class="helptext">${escapeHtml(status.cloud_notice||'云服务商安全组需要单独设置')}</p>`;
+   const disable=el('[data-action="toggle-ufw"][data-mode="disable"]');
+   if(disable)disable.disabled=status.status!=='active';
+ }catch(err){
+   const target=el('#setup-firewall-status');
+   if(state.setupFlowId===id&&target)target.innerHTML=`<div class="modal-tip warning">UFW 状态检查失败：${escapeHtml(err.message)}。你可以跳过本步，或稍后重试。出于安全考虑不提供关闭操作。</div>`;
+   state.setupFirewallStatus='unknown';
+ }
+}
+function setupProjects(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.setupFlowId=id;
+ state.hostPanel={id,tab:'deploy'};
+ const visible=Object.entries(state.catalog).filter(([key,p])=>!p.internal);
+ dialog(modalHead('第 5 步 · 选择要安装的软件')+setupProgress(5)+
+  `<div class="setup-result"><span class="chip success">服务器 ${escapeHtml(host.name)} 已连接</span>
+    <h3>接下来想在 VPS 上安装什么？</h3><p>${certLabel(host)}。系统会自动识别已有软件、检查环境并生成安装方案；真正安装前只需要批准一次。</p></div>
+    <div class="server-project-grid setup-project-grid">${visible.map(([key,project])=>`<button type="button" class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
+      <span class="project-choice-icon" aria-hidden="true">${symbol[key]||'▣'}</span>
+      <strong>${escapeHtml(project.name)}</strong><small>${escapeHtml(project.subtitle)}</small>
+      <span class="project-choice-link">${project.deployment==='install'?'继续':'查看方案'} <span aria-hidden="true">→</span></span>
+     </button>`).join('')}</div>
+    <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">完成，稍后部署</button></div>`);
+}
+function addHost(){
+ state.setupFlowId=null;
+ state.hostPanel=null;
+ dialog(modalHead('第 1 步 · 添加 Linux VPS')+setupProgress(1)+
+  `<p class="helptext">SSH 支持公网 IPv4 或 IPv6（IPv6 不要添加 [ ]）。IPv6 VPS 可选择本机访问、NPM 或内置 HTTPS；IPv6 IP 证书需要短期续期，域名证书须配置指向当前 VPS 的 AAAA 记录。</p>
+  <form id="add-host-form"><div class="form-group"><label>服务器名称</label><input name="name" placeholder="例如：日本 VPS 01" required maxlength="60"/></div>
+  <div class="form-group"><label>服务器公网 IPv4 / IPv6（用于 SSH 连接）</label><input name="hostname" placeholder="例如：45.32.35.195 或 2606:4700:4700::1111" required inputmode="text" spellcheck="false"/></div>
+  <div class="form-group"><label>HTTPS 域名（可选；IPv6 推荐用于 NPM）</label>
+    <input name="tls_domain" placeholder="例如：ts.example.com" autocomplete="off"/>
+    <p class="helptext">IPv4 内置 HTTPS 核验 DNS A；IPv6 核验 DNS AAAA、实际网卡 IPv6 及 TCP 80。仍可选择 NPM，所有公网端口需另外设置云防火墙。</p></div>
+  <div class="form-2"><div class="form-group"><label>SSH 用户名</label><input name="username" value="root" required/></div>
+    <div class="form-group"><label>SSH 端口</label><input name="port" type="number" min="1" max="65535" value="22" required/></div></div>
+  ${authSelect()}
+  <div class="modal-tip">首次连接仍需通过 VPS 云控制台独立核对一次 SSH 指纹。密码可保存到 Windows 系统凭据库；以后不必反复输入。</div>
+  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button>
+    <button class="btn primary" type="submit">添加并验证服务器 →</button></div></form>`);
+ enableAuthToggle();
+ el('#add-host-form').addEventListener('submit',async e=>{
+   e.preventDefault();const form=e.currentTarget;
+   const d=Object.fromEntries(new FormData(form));
+   d.port=Number(d.port);d.tls_domain=String(d.tls_domain||'').trim()||null;
+   d.remember_password=d.remember_password==='on';
+   if(d.auth_mode!=='password')delete d.password;
+   if(!isSshIpInput(String(d.hostname).trim())){toast('SSH 地址请填写 VPS 公网 IPv4 或 IPv6（IPv6 不带方括号）；IPv6 格式和公网属性由服务器再次校验',true);return;}
+   const existing=state.hosts.find(h=>h.hostname.toLowerCase()===String(d.hostname).toLowerCase()&&h.port===d.port);
+   if(existing){
+     if((existing.tls_domain||'')!==(d.tls_domain||'')){
+       editHost(existing.id);toast('该 IP 已添加，请在服务器编辑中修改可选证书域名，不会重置 SSH 信任');
+     }else{await beginServerSetup(existing.id);}
+     return;
+   }
+   const btn=form.querySelector('button[type="submit"]');if(btn){btn.disabled=true;btn.classList.add('is-loading');}
+   try{
+     toast('正在保存 VPS 和本机 SSH 凭据…');
+     const created=await api('/hosts',{method:'POST',body:JSON.stringify(d)});
+     // Server response is authoritative. Reconcile it immediately so a
+     // concurrent 5-second dashboard refresh cannot hide the new VPS before
+     // the next SSH fingerprint step begins.
+     state.hosts=[created,...state.hosts.filter(h=>h.id!==created.id)];
+     await loadAll(true);
+     if(!state.hosts.some(h=>h.id===created.id))state.hosts.unshift(created);
+     toast('服务器已添加，下一步核对 SSH 指纹');
+     await beginServerSetup(created.id);
+   }catch(err){toast(err.message,true);}
+   finally{if(btn?.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}
+ });
+}
+function editHost(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ const locked=Boolean(host.job_count);
+ dialog(modalHead('编辑 VPS 服务器')+`<p class="helptext">SSH 地址支持公网 IPv4 / IPv6；HTTPS 域名可以单独编辑，不会影响 SSH 连接与已信任的主机指纹。</p>
+ <form id="edit-host-form"><div class="form-group"><label>显示名称</label><input name="name" maxlength="60" required value="${escapeHtml(host.name)}"/></div>
+ <div class="form-group"><label>服务器公网 IPv4 / IPv6（SSH 地址）</label><input name="hostname" required value="${escapeHtml(host.hostname)}" ${locked?'readonly':''}/></div>
+ <div class="form-group"><label>HTTPS 证书域名（可选，不填使用服务器 IP）</label>
+   <input name="tls_domain" value="${escapeHtml(host.tls_domain||'')}" placeholder="例如：ts.example.com"/>
+   <p class="helptext">此项可单独修改；有待审批的 HTTPS 计划时会使旧计划失效，避免用旧域名部署。</p></div>
+ <div class="form-2"><div class="form-group"><label>SSH 用户名</label><input name="username" required value="${escapeHtml(host.username)}" ${locked?'readonly':''}/></div>
+ <div class="form-group"><label>SSH 端口</label><input name="port" type="number" min="1" max="65535" required value="${host.port}" ${locked?'readonly':''}/></div></div>
+ <div class="modal-tip">${locked?`已有 ${host.job_count} 条部署历史，因此 SSH IP、端口和用户名保持锁定；但可修改显示名称和 HTTPS 证书域名。`:'修改 SSH IP、端口或用户名将清除旧环境检测状态及本机缓存密码，并需要重新验证 SSH 指纹。'}</div>
+ <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary" type="submit">保存修改</button></div></form>`);
+ el('#edit-host-form').addEventListener('submit',async e=>{
+   e.preventDefault();const form=e.currentTarget;const d=Object.fromEntries(new FormData(form));d.port=Number(d.port);d.tls_domain=String(d.tls_domain||'').trim()||null;
+   const submit=form.querySelector('button[type="submit"]');if(submit){submit.disabled=true;submit.classList.add('is-loading');}
+   toast('正在保存服务器信息…');
+   try{await api(`/hosts/${id}`,{method:'PUT',body:JSON.stringify(d)});closeDialog();await loadAll(true);toast('服务器信息已更新');}
+   catch(err){toast(err.message,true);}finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
+ });
+}
+function deleteHost(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ dialog(modalHead('删除 VPS 记录')+`<div class="modal-tip warning"><b>只删除 NetDeploy AI 的本地记录，不卸载 VPS 软件。</b> SSH 指纹若被其他服务器条目共用，会继续保留。关联部署任务、日志和面板快捷入口将在明确确认后删除，无法从面板恢复。</div>
+ <p class="helptext">${escapeHtml(host.name)} · ${escapeHtml(host.hostname)}:${host.port} · ${host.job_count||0} 条部署历史</p>
+ <form id="delete-host-form"><p class="helptext">点击下方删除按钮即可确认，不需要手动输入英文确认语句。</p>
+ ${host.job_count?`<label class="check"><input type="checkbox" name="delete_local_history" required/> 我确认同步删除该 VPS 的 ${host.job_count} 条本地任务历史及日志（不会删除远端软件）</label>`:''}
+ <div class="modal-actions"><button class="btn ghost" type="button" data-action="close-modal">取消</button><button class="btn danger" type="submit">删除本地服务器记录</button></div></form>`);
+ el('#delete-host-form').addEventListener('submit',async e=>{
+   e.preventDefault();const form=e.currentTarget;const fd=new FormData(form);
+   const payload={confirmation:`DELETE VPS ${id}`,delete_local_history:fd.get('delete_local_history')==='on'};
+   const submit=form.querySelector('button[type="submit"]');if(submit){submit.disabled=true;submit.classList.add('is-loading');}
+   toast('正在安全删除本地 VPS 记录…');
+   try{const res=await api(`/hosts/${id}`,{method:'DELETE',body:JSON.stringify(payload)});
+     closeDialog();await loadAll(true);toast(`本地 VPS 已删除（清理 ${res.deleted_jobs} 条任务）；未修改远端服务器`);}
+   catch(err){toast(err.message,true);}finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
+ });
+}
+function credentials(id){
+ const host=state.hosts.find(h=>h.id===id);
+ if(!host)return;
+ dialog(modalHead('设置 SSH 登录方式')+`<p class="helptext">${escapeHtml(host.name)}（${escapeHtml(host.username)}@${escapeHtml(host.hostname)}:${host.port}）</p>
+ <form id="credentials-form">${authSelect(host.auth_mode||'key',host.password_remembered)}
+ <div class="modal-tip">${host.credential_ready?'目前已有可用凭据':'当前无可用登录凭据'}。仅更换 SSH 登录方式才会清空旧检测结果；同方式重填密码不会清空。创建部署计划时会自动进行只读检测。</div>
+ <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary" type="submit">保存登录方式</button></div></form>`);
+ enableAuthToggle();
+ el('#credentials-form').addEventListener('submit',async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.currentTarget));d.remember_password=d.remember_password==='on';if(d.auth_mode!=='password')delete d.password;const btn=e.currentTarget.querySelector('button[type="submit"]');if(btn){btn.disabled=true;btn.classList.add('is-loading');}try{toast('正在安全更新登录凭据…');await api(`/hosts/${id}/credentials`,{method:'PUT',body:JSON.stringify(d)});closeDialog();await loadAll(true);toast('登录凭据已更新；生成部署方案时会自动检测环境');if(state.setupFlowId===id)await setupPreflight(id);}catch(err){toast(err.message,true);}finally{if(btn?.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}});
+}
+async function fingerprint(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ dialog(modalHead('第 2 步 · SSH 主机指纹')+(state.setupFlowId===id?setupProgress(2):'')+`<div class="fingerprint-workflow">
+   <p class="helptext">${escapeHtml(host.name)} · ${escapeHtml(host.hostname)}:${host.port}</p>
+   <div id="fingerprint-data" class="fingerprint-loading" role="status"><span class="inline-spinner" aria-hidden="true"></span><span>正在读取主机公钥并比对本机信任记录…</span></div>
+ </div>`);
+ try{
+   const res=await api(`/hosts/${id}/fingerprint`,{method:'POST'});
+   const target=el('#fingerprint-data');if(!target)return;
+   const old=res.previous_fingerprints||[];
+   const changed=Boolean(res.changed);
+   const matched=old.length>0&&!changed;
+   const algorithm=String(res.key_type||'ssh-ed25519');
+   const keyFile=algorithm==='ssh-ed25519'?'ed25519':algorithm.startsWith('ecdsa-')?'ecdsa':'rsa';
+   state.pendingFingerprint={hostId:id,...res};
+   target.className='fingerprint-result';
+   const currentCard=`<div class="fingerprint-key-card"><span class="fingerprint-label">当前主机指纹 · ${escapeHtml(algorithm)}</span>
+     <code class="fingerprint-value">${escapeHtml(res.fingerprint)}</code></div>`;
+   const closeAction=`<button class="btn primary" data-action="back-host" data-id="${id}">返回服务器控制台</button>`;
+   if(matched){
+     target.innerHTML=`<div class="fingerprint-verdict verified" role="status"><span class="fingerprint-verdict-icon" aria-hidden="true">✓</span>
+       <div><strong>SSH 主机身份验证通过</strong><p>当前指纹与此前保存的记录完全一致，不需要重复信任。</p></div></div>
+       ${currentCard}
+       <details class="fingerprint-guide"><summary>如何在云厂商控制台再次核对？</summary>
+         <p>仅在首次连接、怀疑服务器被替换或重装时需要独立核对：</p>
+         <code class="fingerprint-command">ssh-keygen -lf /etc/ssh/ssh_host_${keyFile}_key.pub -E sha256</code>
+       </details><div class="fingerprint-actions">${closeAction}</div>`;
+     if(state.setupFlowId===id){toast('SSH 指纹已验证，自动进入连接检测');await setupPreflight(id);}
+     return;
+   }
+   const status=changed
+     ?'<div class="fingerprint-verdict changed" role="alert"><span class="fingerprint-verdict-icon" aria-hidden="true">!</span><div><strong>服务器指纹发生变化</strong><p>若 VPS 已重装，请先在云厂商的独立控制台核对新指纹，不能直接跳过验证。</p></div></div>'
+     :'<div class="fingerprint-verdict first" role="status"><span class="fingerprint-verdict-icon" aria-hidden="true">i</span><div><strong>首次连接，需要核对指纹</strong><p>扫描只能获取公钥，不能独立证明对方身份。</p></div></div>';
+   const oldCard=changed&&old.length?`<div class="fingerprint-key-card previous"><span class="fingerprint-label">之前信任的指纹</span>
+     ${old.map(x=>`<code class="fingerprint-value">${escapeHtml(x.key_type)} · ${escapeHtml(x.fingerprint)}</code>`).join('')}</div>`:'';
+   const shared=changed&&res.shared_host_count>1?`<p class="fingerprint-shared">提示：${res.shared_host_count} 条 VPS 记录共用此 IP 和 SSH 端口，确认更新会使这些记录的旧部署计划失效。</p>`:'';
+   const button=changed
+      ?`<button class="btn danger" data-action="prepare-rekey" data-id="${id}">已核实 VPS 重装，更新信任</button>`
+      :`<button class="btn primary" data-action="trust" data-id="${id}" data-fingerprint="${escapeHtml(res.fingerprint)}">${state.setupFlowId===id?'确认指纹，下一步检测连接 →':'核对一致，首次信任'}</button>`;
+   target.innerHTML=`${status}<div class="fingerprint-key-stack">${currentCard}${oldCard}</div>
+     <div class="fingerprint-guide always"><strong>核对方式</strong><p>进入 VPS 云厂商的网页控制台，执行下面的命令。核对结果必须与当前指纹一致。</p>
+       <code class="fingerprint-command">ssh-keygen -lf /etc/ssh/ssh_host_${keyFile}_key.pub -E sha256</code></div>
+     ${shared}<label class="fingerprint-confirm"><input type="checkbox" id="verified-key"/> 我已通过独立控制台核对，确认当前指纹一致</label>
+     <div class="fingerprint-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">返回</button>${button}</div>`;
+ }catch(err){
+   const target=el('#fingerprint-data');
+   if(target){target.className='fingerprint-result';target.innerHTML=`<div class="fingerprint-verdict changed" role="alert">
+      <div><strong>无法获取 SSH 主机公钥</strong><p>${escapeHtml(err.message)}</p></div></div>
+      <details class="fingerprint-guide"><summary>查看 SSH / IPv6 分步排查命令</summary>
+        <p>第一步 · 仅检查 TCP 端口。即使 TcpTestSucceeded=True，也不代表服务器已完成 SSH 协议协商。</p>
+        <code class="fingerprint-command">Test-NetConnection -ComputerName ${escapeHtml(host.hostname)} -Port ${Number(host.port)}</code>
+        <p>第二步 · 读取 SSH 协议及服务器公钥（不使用账号密码，不会信任主机）。在 Windows PowerShell 运行：</p>
+        <code class="fingerprint-command">ssh-keyscan ${isIpv6Input(host.hostname)?'-6 ':'-4 '}-T 15 -p ${Number(host.port)} ${escapeHtml(host.hostname)}</code>
+        <p>若 TCP 检测成功但 ssh-keyscan 没有返回公钥，请检查 sshd 是否监听 IPv6、服务端 sshd 日志和 SSH 连接限制。若能返回公钥而本软件仍失败，请反馈错误代码排查算法或协商超时。<strong>扫描到的公钥必须再从云厂商独立控制台核对，不得直接信任。</strong></p>
+      </details><div class="fingerprint-actions"><button class="btn primary" data-action="fingerprint" data-id="${id}">重新扫描</button><button class="btn subtle" data-action="back-host" data-id="${id}">返回服务器</button></div>`;}
+   toast(err.message,true);
+ }
+}
+function prepareRekey(id){
+ const pending=state.pendingFingerprint;
+ const host=state.hosts.find(h=>h.id===id);
+ if(!host||!pending||pending.hostId!==id||!pending.changed)return;
+ if(!el('#verified-key')?.checked){toast('请先在云厂商控制台独立核对新指纹并勾选确认',true);return;}
+ const phrase=`REKEY ${host.hostname}:${host.port}`;
+ dialog(modalHead('确认 VPS 重装后的新身份')+`<div class="modal-tip warning"><b>将替换这一 IP/端口旧的 SSH 信任记录。</b>
+ 不会删除其他服务器的密钥；同一 SSH 地址的 ${pending.shared_host_count} 条 VPS 记录都会更新，旧审批计划会失效。</div>
+ <div class="form-group"><label>新指纹（必须与云控制台一致）</label><div class="pre">${escapeHtml(pending.fingerprint)}</div></div>
+ <p class="helptext">你已勾选独立核对指纹，无需再复制或输入确认语句。点击按钮后还会重新验证服务器公钥，确认一致才会更新。</p>
+ <form id="rekey-form">
+ <div class="modal-actions"><button class="btn ghost" type="button" data-action="fingerprint" data-id="${id}">返回核对指纹</button>
+ <button class="btn danger" type="submit">确认更新 SSH 信任</button></div></form>`);
+ el('#rekey-form').addEventListener('submit',async e=>{
+   e.preventDefault();const form=e.currentTarget;const submit=form.querySelector('button[type="submit"]');
+   if(state.pendingFingerprint!==pending||state.pendingFingerprint.hostId!==id){toast('主机指纹信息已变化，请重新扫描并独立核对',true);return;}
+   if(submit){submit.disabled=true;submit.classList.add('is-loading');}
+   const confirmation=phrase;toast('正在确认新指纹并安全更新信任记录…');
+   try{const result=await api(`/hosts/${id}/rekey`,{method:'POST',body:JSON.stringify({
+      fingerprint:pending.fingerprint,previous_fingerprints:pending.previous_fingerprints.map(x=>x.fingerprint),
+      confirmed_out_of_band:true,confirmation
+   })});state.pendingFingerprint=null;closeDialog();await loadAll(true);
+      toast(`新指纹已安全信任，影响 ${result.affected_host_records} 条记录；请重新检测系统并核对 SSH 登录密码`);
+      if(state.setupFlowId===id)await setupPreflight(id);
+      else openHostConsole(id,'security');
+   }catch(err){toast(err.message,true);}finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
+ });
+}
+async function preflight(id){
+ const host=state.hosts.find(h=>h.id===id);toast('正在通过 SSH 扫描 '+host.name);
+ try{const result=await api(`/hosts/${id}/preflight`,{method:'POST'});await loadAll(true);const f=result.facts;
+  dialog(modalHead('环境检测成功')+`<p class="helptext">${escapeHtml(result.name)}：${escapeHtml(result.hostname)}</p>
+  <div class="checks">${Object.entries(f).map(([k,v])=>`<div class="check">${escapeHtml(k)} <b class="right">${escapeHtml(v)}</b></div>`).join('')}</div><div class="modal-tip">此结果用于部署方案筛选；审批时还会重新预检以防环境发生变化。</div><div class="modal-actions"><button class="btn primary" data-action="close-modal">完成</button></div>`);
+ }catch(err){toast(err.message,true);}
+}
+function chooseHost(project,selectedHostId=null){
+ const p=state.catalog[project];
+ if(!state.hosts.length){addHost();return;}
+ dialog(modalHead(`${p.deployment==='install'?'部署':'部署规划'} ${p.name}`)+`<form id="plan-form"><p class="helptext">选择目标 VPS，点击生成方案时会自动进行最新的只读环境检测，无需提前手动扫描。</p>
+ <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}"${h.id===selectedHostId?' selected':''}>${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
+ ${project==='hiddify'?'<div class="modal-tip warning">仅选择独立的 Ubuntu VPS。Hiddify 会修改系统与防火墙，并使用 80 和 443 端口。</div>':''}
+ ${project==='3x-ui'||project==='s-ui'?`${project==='3x-ui'?'<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>':'<div class="modal-tip">S-UI 管理端口固定 2095/TCP；订阅 2096/TCP 始终仅本机监听，不直接开放公网。</div>'}
+ <div class="form-group"><label>面板 HTTPS 处理方式</label><select id="tls-strategy" name="tls_strategy"><option value="https">自动申请 SSL 证书（公网 IPv4 / IPv6）</option><option value="npm">不申请证书，交给 NPM 反向代理提供 HTTPS</option><option value="local">不申请证书，仅通过本机 SSH 隧道访问</option></select></div><div class="modal-tip" id="cert-strategy-note"><b id="cert-type-preview">证书类型自动识别中</b><p class="helptext" id="cert-strategy-help">自动申请证书需要 TCP 80 完成 ACME HTTP-01 验证。</p></div>`:''}
+ ${project==='logistics-quote'||project==='music-unlock'?`<div class="form-group"><label>站点域名（必填）</label>
+<input name="domain" placeholder="例如：quote.example.com" required autocomplete="off"/>
+<p class="helptext">域名要先解析到这台 VPS。用于生成 nginx 站点配置并申请 HTTPS 证书；不要带 http:// 和端口。</p></div>
+<div class="form-group"><label>安装目录（可选）</label>
+<input name="docroot" placeholder="留空使用默认目录" autocomplete="off"/>
+<p class="helptext">留空则使用项目默认目录。必须是绝对路径。</p></div>
+<div class="form-group"><label class="inline"><input type="checkbox" name="skip_ssl"/> 跳过 HTTPS 证书申请</label>
+<p class="helptext">只在 DNS 还没配好、或想先用 HTTP 验证时勾选。生产环境建议申请证书。</p></div>
+<div class="modal-tip">${project==='logistics-quote'?'从公开源码安装是<b>空站</b>：没有账号数据和报价表，装完要在后台「整表导入」上传报价表才能报价。':'纯静态站，解密全在浏览器里跑，文件不上传。'}</div>`:''}
+ ${project==='dockge'?`<div class="form-group"><label>Dockge Apps 宿主机端口（可选）</label>
+<input name="dockge_port" type="number" min="1024" max="65535" placeholder="留空自动随机分配 20000–59999"/>
+<p class="helptext">可自定义 1024–65535，不能与 VPS SSH 端口冲突；容器内部端口保持 5001。</p></div>
+<div class="modal-tip">安装完成后默认显示服务器公网 IP + 实际端口的管理地址。公网 HTTP 与 Docker 管理权限的安全注意事项将在部署审批页面说明。</div>
+<div class="helptext">全新 VPS 缺少 Docker 时，使用官方 get.docker.com 一键脚本准备环境。</div>`:''}
+ <div class="modal-tip">仅生成可审查的部署计划；确认所有步骤和风险后仍需单独审批执行。</div>
+ <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">自动检测并生成方案 →</button></div></form>`);
+ if(project==='3x-ui'||project==='s-ui'){
+   const target=el('#plan-host-id');
+   const preview=()=>{
+     const host=state.hosts.find(h=>h.id===Number(target?.value));
+     if(!host)return;
+     const ip=!host.tls_domain&&(isIpv4Input(host.hostname)||isIpv6Input(host.hostname));
+     const ipv6=isIpv6Input(host.hostname);
+     const indicator=el('#cert-type-preview');
+     const strategy=el('#tls-strategy');
+     const npm=strategy?.value==='npm';
+     const local=strategy?.value==='local';
+     if(indicator)indicator.textContent=local?'SSH 隧道访问 · 不申请证书':npm?'由 NPM 统一签发 HTTPS（本面板不申请证书）':ip?`使用 ${host.hostname} 申请公网 IP 证书${ipv6?'（160 小时）':''}`:`使用 ${host.tls_domain} 申请域名证书（${ipv6?'AAAA':'A'}）`;
+     const note=el('#cert-strategy-note');
+     if(note)note.dataset.proxyMode=npm?'npm':'https';
+     const help=el('#cert-strategy-help');
+     if(help)help.textContent=local?'本机模式不会公开管理端口；请使用 SSH 隧道或安全反向代理。':npm?'不使用 Certbot，不占用 80 端口。S-UI 仅监听本机；3X-UI 原始 HTTP 将按风险审批公开，IPv6 会额外核验。':ipv6?'IPv6 HTTPS 要求公网 IPv6 已分配到 VPS，DNS AAAA 正确（如填写），并放行 TCP 80 和管理端口。':'自动签发证书需要公网 TCP 80 完成 ACME 验证。';
+   };
+   const hostChanged=()=>{
+     const host=state.hosts.find(h=>h.id===Number(target?.value));
+     const strategy=el('#tls-strategy');
+     if(strategy)strategy.value=host&&isIpv6Input(host.hostname)?'local':'https';
+     preview();
+   };
+   target?.addEventListener('change',hostChanged);
+   el('#tls-strategy')?.addEventListener('change',preview);
+   hostChanged();
+ }
+ el('#plan-form').addEventListener('submit',async e=>{
+  e.preventDefault();const form=e.currentTarget,fd=new FormData(form);
+  const hostId=Number(fd.get('host_id'));
+  if(project==='3x-ui'){await createHostPlan(hostId,project,Number(fd.get('panel_port')),false,String(fd.get('tls_strategy')||'https'));return;}
+  const request={host_id:hostId,project};
+  if(project==='s-ui')request.access_mode=String(fd.get('tls_strategy')||'https');
+  if(project==='logistics-quote'||project==='music-unlock'){
+    const domain=String(fd.get('domain')||'').trim();
+    if(!domain){toast('请填写站点域名',true);return;}
+    request.domain=domain;
+    const docroot=String(fd.get('docroot')||'').trim();
+    if(docroot)request.docroot=docroot;
+    request.skip_ssl=fd.get('skip_ssl')==='on';
+  }
+  if(project==='dockge'){
+    const raw=String(fd.get('dockge_port')||'').trim();
+    if(raw){const port=Number(raw);if(!Number.isInteger(port)||port<1024||port>65535){toast('管理端口必须为 1024–65535',true);return;}request.panel_port=port;}
+    // Default public-IP URL is a plan preference, not permission to execute.
+    // The user must explicitly approve the displayed high-risk plan next.
+    request.access_mode='public';
+    request.confirm_public=true;
+  }
+  const submit=form.querySelector('button[type="submit"]');if(submit){submit.disabled=true;submit.classList.add('is-loading');}
+  try{
+    toast('正在检查 VPS 并生成方案…');
+    const job=await api('/jobs',{method:'POST',body:JSON.stringify(request)});
+    state.activeJob=null;await loadAll(true);
+    if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);
+    showJob(job.id);
+  }catch(err){toast(err.message,true);}
+  finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
+ });
+}
+function showJob(id){
+ const job=state.jobs.find(j=>j.id===id);if(!job){toast('任务不存在，请刷新',true);return;}
+ state.activeJob=id;
+ const p=job.plan,host=state.hosts.find(h=>h.id===job.host_id);
+ const stale=(p.trust_epoch||0)!==(host?.trust_epoch||0);
+ const existingHiddify=isExistingHiddifyPlan(job);
+ const sameHiddifyHost=job.project==='hiddify'&&!stale&&host&&host.hostname===p.hostname;
+ const recheckHiddify=sameHiddifyHost&&hiddifyPlanBlocked(job)&&!existingHiddify;
+ const openInstalledHiddify=sameHiddifyHost&&job.status==='completed';
+ const inspectHiddify=sameHiddifyHost&&(existingHiddify||['completed','partial'].includes(job.status));
+ const postInstallSshIssue=job.project==='3x-ui'&&!stale&&['failed','partial'].includes(job.status)&&
+   String(job.logs||'').includes('通过：Official installer finished; sensitive credentials kept on VPS only')&&
+   /SSH_(HANDSHAKE_FAILED|CONNECT_TIMEOUT|CONNECTION_REFUSED|NETWORK_ERROR|AUTH_FAILED)/.test(String(job.error||job.logs||''));
+ let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
+ if(stale)html+='<div class="modal-tip warning">此任务属于服务器重装前的系统。旧登录信息和审批计划已失效，必须重新检测并创建新的部署方案。</div>';
+ if(p.issues.length&&!isExistingXuiPlan(job)&&!existingHiddify)html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
+ if(existingHiddify&&inspectHiddify)html+='<div class="modal-tip">检测到 Hiddify 安装文件。请检查服务的当前运行状态。</div>';
+ if(inspectHiddify)html+='<div id="hiddify-live-status" role="status"></div>';
+ if(recheckHiddify)html+='<p class="helptext">上面是这份方案生成时的检查结果。重新检测会生成新方案，安装前仍需你审批。</p>';
+ if(job.status==='planned'&&p.executable&&!stale&&job.needs_refresh===true){
+   const hiddify=job.project==='hiddify';
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧脚本已更新</span>
+     <h3>这份审批计划来自更新前的版本</h3><p>${hiddify?'新版使用 Hiddify 官网一键入口。请重新检测并审阅新方案。':'3X-UI HTTPS 命令已修复，旧计划不能直接用。点击下面按钮重新检测并生成当前版本的固定方案；不会立即改动 VPS。'}</p>
+     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">${hiddify?'重新检测并生成方案 →':'更新为最新 HTTPS 修复方案 →'}</button>
+   </section>`;
+ }else if(job.status==='planned'&&job.project==='dockge'&&!p.executable&&!stale){
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧版 Docker 前置条件</span>
+     <h3>新版可自动准备 Docker 与 Compose</h3><p>这份旧计划不能直接执行。重新检测当前 VPS，若没有 Docker 且不存在旧容器数据，会自动生成先安装 Docker 环境、再部署 Dockge Apps 的完整方案。已有不完整安装仍会受到保护。</p>
+     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测并生成一键部署方案 →</button></section>`;
+ }else if(job.status==='planned'&&p.executable&&!stale&&isPlanExpired(job)){
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">需要更新计划</span>
+     <h3>部署计划已超过 10 分钟</h3><p>为防止服务器环境发生变化，点击下方按钮重新检测并生成最新计划。此操作不会直接安装软件。</p>
+     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">更新方案并继续审批 →</button>
+   </section>`;
+ }else if(job.status==='planned'&&p.executable&&!stale){
+   const xuiHttps=job.project==='3x-ui'&&p.options?.access_mode==='https';
+   const localPanel=['3x-ui','s-ui','dockge'].includes(job.project)&&
+     (p.options?.access_mode==='local'||(job.project==='3x-ui'&&!p.options?.access_mode));
+   const dockerPrep=job.project==='dockge'&&p.steps.length>4;
+   const npmPlan=['3x-ui','s-ui'].includes(job.project)&&p.options?.access_mode==='npm';
+   const dedicatedHiddify=job.project==='hiddify';
+   const publicXuiNote=job.project==='3x-ui-http'?`<div class="modal-tip warning"><b>高风险：将已安装 3X-UI 改为公网明文 HTTP。</b>开放的是 TCP ${escapeHtml(p.options.panel_port)}，不是 80。管理员用户名和密码通过 HTTP 发送，可能被窃听；必须先限制云安全组来源为自己的管理 IP。确认后不重装软件，失败会恢复本机监听。</div>`:'';
+   const dockerNote=dockerPrep?'<div class="modal-tip warning"><b>将自动先安装缺少的 Docker / Compose / Git。</b>仅在通过安全检查且你审批后执行。Docker Engine 可能修改 iptables 及容器转发规则；部分容器端口可能绕过 UFW。已有 Docker 或数据冲突不会被强制覆盖，随后继续 Dockge Apps 安装。</div>':'';
+   const dockgePublicNote=job.project==='dockge'&&p.options?.access_mode==='public'?'<div class="modal-tip warning"><b>本次部署将把 Dockge Apps 管理端口直接绑定至服务器公网 IP。</b>目标端口 '+escapeHtml(p.options.panel_port)+'/TCP；访问地址将是 http://'+escapeHtml(host?.hostname||p.hostname)+':'+escapeHtml(p.options.panel_port)+'/ 。该地址是未加密 HTTP，且 Dockge 通过 Docker Socket 可管理整台 VPS。<b>首次管理员创建前，任何能访问端口的人都可能抢先注册。</b>请确保云防火墙仅允许可信管理 IP，或先使用 SSH-only 模式完成初始化。只有点击下方的明确审批按钮才会执行公网部署。</div>':'';
+   const npmNote=npmPlan?`<div class="modal-tip warning"><b>交给 NPM 统一 HTTPS · 本面板不申请证书</b><p>3X-UI 将开启 VPS 公网 HTTP ${escapeHtml(host?.hostname||p.hostname)}:${escapeHtml(p.npm_proxy.port)}，这是明文管理登录，请先在云安全组仅允许自己的管理 IP。NPM 仍可通过宿主机 127.0.0.1:${escapeHtml(p.npm_proxy.port)} 反代，并为独立域名申请 SSL。S-UI 则仍然只在本机监听。NPM Docker 容器应使用 host 网络模式。不会使用 Certbot 或 ACME TCP 80。</p></div>`:'';
+   html+=`<div class="plan-overview"><h3>${job.project==='3x-ui-https'?'继续配置已安装的 3X-UI HTTPS（不重装）':job.project==='s-ui-https'?'继续配置已安装的 S-UI HTTPS（不重装）':job.project==='s-ui'&&p.options?.access_mode==='https'?'一键安装 S-UI 并申请 IP/域名证书':npmPlan?`安装 ${escapeHtml(p.name)}（无需申请证书，由 NPM 统一 HTTPS）`:xuiHttps?'一键安装 3X-UI 并配置 HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
+     <p>目标：${escapeHtml(host?.hostname||p.hostname)} · ${p.steps.length} 个受控执行阶段 · 风险：${escapeHtml(p.risk)}</p>
+     ${localPanel?'<p>管理面板通过 SSH 隧道访问。</p>':''}
+     ${dockerNote}${dockgePublicNote}${npmNote}${publicXuiNote}<div class="modal-tip warning">${dedicatedHiddify?'请确认这是已备份的专用 VPS。Hiddify 会修改系统和本机防火墙，使用 80/443；域名与证书在安装后由 Hiddify 配置。':'审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。'}</div></div>
+     <form id="approve-form"><div class="modal-actions plan-primary-actions">
+       <button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>
+       <button type="button" class="btn ghost" data-action="close-modal">暂不部署</button>
+       <button class="btn primary" type="submit">${dedicatedHiddify?'确认在专用 VPS 安装':['3x-ui-https','s-ui-https'].includes(job.project)?'确认继续 HTTPS（不重装）':publicXuiNote?'确认开启公网 HTTP（不申请证书）':dockgePublicNote?'确认公网开放并部署 Dockge Apps':dockerPrep?'确认安装依赖并部署 Dockge Apps':'确认并一键部署'}</button>
+     </div></form>`;
+ }else if(isExistingXuiPlan(job)&&!stale){
+   html+=`<section class="server-next-action is-ready"><span class="server-next-kicker">已安装 · 无需审批</span>
+     <h3>3X-UI 已存在，不需要重新安装</h3><p>此历史方案没有安装步骤，因此无法执行。直接通过已验证 SSH 读取现有面板信息；仅在修改配置时才需要确认。</p>
+     <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看现有 3X-UI 面板 →</button>
+   </section>`;
+ }else if(historicalHttpsFailure(job)&&!stale){
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧版执行记录 · 当前模板已修复</span>
+     <h3>这条 HTTPS 失败记录来自旧版本脚本</h3>
+     <p>历史任务的固定命令与当前 NetDeploy AI 代码不一致，不能据此认定新版仍然失败。3X-UI 和现有证书保持不变，点击只会重新生成当前版本的 HTTPS 配置方案，不会直接重装或执行。</p>
+     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">生成最新版 HTTPS 修复方案 →</button>
+   </section>`;
+   html+=`<h3>原任务执行日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
+     <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
+     <div class="modal-actions"><button class="btn subtle" data-action="installed-xui" data-id="${job.host_id}">查看已安装 3X-UI</button>
+       <button class="btn subtle" data-action="close-modal">关闭</button></div>`;
+ }else{
+   if(postInstallSshIssue)html+=`<section class="server-next-action pending"><span class="server-next-kicker">安装器已返回成功 · SSH 验收中断</span>
+     <h3>先检查已安装的 3X-UI，不要重复部署</h3>
+     <p>前四步已完成，但最终 SSH 握手异常，尚不能确定面板监听和防火墙是否验收通过。新版本会在执行远端命令前有限重连。恢复可信 SSH 后可点击下方按钮只读核查现有服务，不会执行安装器或改动密码。</p>
+     <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">只读检查现有 3X-UI（不重装） →</button></section>`;
+   html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(jobStatusText(job))}</div>
+      ${openInstalledHiddify?'<div class="modal-tip">首次打开时，Hiddify 会引导你完成官方快速设置。</div>':''}
+      <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
+      <div class="modal-actions modal-action-wrap">
+       ${openInstalledHiddify?hiddifyAdminLink(job.id):''}
+       ${inspectHiddify?`<button type="button" class="btn ${openInstalledHiddify?'subtle':'primary'}" data-action="hiddify-job-status" data-id="${escapeHtml(job.id)}">检查 Hiddify 运行状态</button>`:''}
+       ${recheckHiddify?`<button type="button" class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>`:''}
+       ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)&&!postInstallSshIssue?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||p.options?.access_mode==='npm'||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
+       ${job.project==='s-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI 面板信息</button>${job.status==='partial'||(!['https','npm'].includes(p.options?.access_mode))?`<button class="btn subtle" data-action="sui-upgrade" data-id="${job.host_id}">继续完成 HTTPS</button>`:''}`:''}
+       ${job.project==='s-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI HTTPS 面板</button>`:''}
+       ${['dockge','dockge-access'].includes(job.project)&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-dockge" data-id="${job.host_id}">${p.name==='Dockge'?'查看旧版 Dockge 状态':'查看 Dockge Apps 面板信息'}</button>`:''}
+       ${job.project==='s-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成 S-UI HTTPS 方案</button>`:''}
+       ${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看 HTTPS 面板信息</button>`:''}
+       ${job.project==='3x-ui-http'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看公网 HTTP 面板</button>`:''}
+       ${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}
+       <button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读排障</button>
+       ${['queued','running'].includes(job.status)?'':`<button class="btn danger" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除记录</button>`}
+       <button class="btn subtle" data-action="close-modal">关闭</button>
+     </div><div id="ai-response"></div>`;
+ }
+ if(p.npm_proxy&&['completed','partial'].includes(job.status)){
+   const n=p.npm_proxy;
+   html+=`<div class="modal-tip"><b>NPM 反向代理配置提示（本面板未申请 SSL）</b><p>Forward Scheme：<code>http</code>；Forward Host：<code>${escapeHtml(n.host)}</code>；Forward Port：<code>${escapeHtml(n.port)}</code>。3X-UI 需要在 NPM 中启用 WebSockets Support。面板原始 HTTP 端口不要对外放行。NPM Docker 容器应采用 host 网络模式，NPM 在公网使用 80/443 为域名申请证书。</p></div>`;
+ }
+ html+=`<details class="plan-technical"><summary>展开技术详情、风险说明和实际执行命令（${p.steps.length} 步）</summary>
+   <h3>环境要求</h3><ul class="notice-list">${p.requires.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ul>
+   <h3>风险提示</h3><ul class="notice-list">${p.warnings.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ul>
+   ${p.steps.map((step,i)=>`<div class="step"><span class="num">${i+1}</span><div><b>${escapeHtml(step.label)}</b><small>超时上限 ${step.timeout} 秒</small>
+      <details><summary class="mini">查看固定脚本</summary><pre class="pre">${escapeHtml(step.script)}</pre></details></div></div>`).join('')}
+   <a class="external" href="${escapeHtml(p.docs)}" target="_blank" rel="noopener noreferrer">官方安装文档</a></details>`;
+ dialog(html);
+ const form=el('#approve-form');if(form)form.addEventListener('submit',async e=>{
+   e.preventDefault();const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.classList.add('is-loading');
+   toast('正在复核服务器并执行已批准的方案…');
+   try{await api(`/jobs/${job.id}/approve`,{method:'POST',body:JSON.stringify({confirmed_risk:true})});
+       await loadAll(true);showJob(id);toast('任务已开始，将自动完成后续安装和验证');}
+   catch(err){toast(err.message,true);}finally{if(btn.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}
+ });
+}
+function confirmDeleteJob(id){
+ const job=state.jobs.find(j=>j.id===id);
+ if(!job){toast('任务记录不存在，请刷新列表',true);return;}
+ if(['queued','running'].includes(job.status)){toast('排队或执行中的任务不能删除',true);return;}
+ state.activeJob=null;
+ dialog(modalHead('删除本地任务记录')+
+   `<div class="modal-tip warning"><b>删除仅作用于 NetDeploy AI 的任务历史。</b>
+   不会卸载 VPS 上已安装的软件、不会关闭远端服务，也不会清除 VPS、SSH 指纹或系统凭据库里的密码。
+   删除成功后这条任务的部署日志和本地访问入口将不可恢复。若 HTTPS 升级引用了这条任务，必须先删除升级任务。</div>
+   <p class="helptext">任务：${escapeHtml(job.project)} · ${escapeHtml(job.id)}（${escapeHtml(stateText(job.status))}）</p>
+   <div class="modal-actions"><button class="btn ghost" data-action="close-modal">取消</button>
+   <button class="btn danger" data-action="confirm-delete-job" data-id="${escapeHtml(id)}">仅删除本地记录</button></div>`);
+}
+async function deleteJobRecord(id){
+ const button=el('[data-action="confirm-delete-job"]');
+ if(button)button.disabled=true;
+ try{
+   await api(`/jobs/${id}`,{method:'DELETE',body:JSON.stringify({confirmation:`DELETE ${id}`})});
+   state.activeJob=null;closeDialog();await loadAll(true);
+   toast('任务历史已删除，VPS 上的软件与配置未改变');
+ }catch(err){toast(err.message,true);}
+ finally{if(button?.isConnected)button.disabled=false;}
+}
+async function regeneratePlan(id){
+ const oldJob=state.jobs.find(j=>j.id===id);
+ if(!oldJob){toast('原部署任务不存在，请刷新',true);return;}
+ const host=state.hosts.find(h=>h.id===oldJob.host_id);
+ if(!host){toast('原服务器不存在，请刷新',true);return;}
+ const button=el('[data-action="regenerate-plan"]');
+ if(button)button.disabled=true;
+ try{
+   const payload={host_id:host.id,project:oldJob.project};
+   if(oldJob.project==='3x-ui'){payload.panel_port=oldJob.plan.options?.panel_port||24443;payload.access_mode=oldJob.plan.options?.access_mode||'https';}
+   if(oldJob.project==='3x-ui-https')payload.source_job_id=oldJob.plan.options?.source_job_id;
+   if(oldJob.project==='s-ui')payload.access_mode=oldJob.plan.options?.access_mode||'https';
+   if(['dockge','dockge-access'].includes(oldJob.project)){
+     payload.panel_port=oldJob.plan.options?.panel_port;
+     payload.access_mode=oldJob.plan.options?.access_mode||'local';
+     payload.confirm_public=oldJob.plan.options?.public_confirmed===true;
+   }
+   if(oldJob.project==='s-ui-https'&&oldJob.plan.options?.source_job_id)payload.source_job_id=oldJob.plan.options.source_job_id;
+   const newJob=await api('/jobs',{method:'POST',body:JSON.stringify(payload)});
+   state.activeJob=null;
+   await loadAll(true);
+   if(!state.jobs.some(j=>j.id===newJob.id))state.jobs.unshift(newJob);
+   showJob(newJob.id);
+   if(isExistingHiddifyPlan(newJob))toast('检测到已有 Hiddify，请检查当前运行状态');
+   else if(hiddifyPlanBlocked(newJob))toast('已重新检测，预检仍未通过。请查看任务里的原因。',true);
+   else toast('已重新检测并生成新部署计划；请检查步骤并再次审批');
+ }catch(err){toast(err.message,true);}
+ finally{if(button?.isConnected)button.disabled=false;}
+}
+async function inspectHiddifyJob(id){
+ const target=el('#hiddify-live-status');
+ if(!target)return;
+ target.textContent='正在通过 SSH 检查 Hiddify…';
+ try{
+   const result=await api('/jobs/'+encodeURIComponent(id)+'/hiddify-status');
+   if(!target.isConnected)return;
+   target.innerHTML=result.status==='running'
+     ? `<div class="modal-tip success-note"><strong>Hiddify 已安装并运行</strong><p>面板服务正常，VPS 的 TCP 80 和 443 已监听。</p>${hiddifyAdminLink(id)}</div>`
+     : '<div class="modal-tip warning">当前未通过运行检查。请通过可信 SSH 核查 Hiddify 服务和 80、443 端口。</div>';
+ }catch(err){if(target.isConnected)target.textContent=err.message;}
+}
+function hiddifyAdminLink(id){
+ // The same-origin launcher inherits the tab's session storage, then drops its opener.
+ return `<a class="btn primary" href="/static/hiddify-launch.html#${encodeURIComponent(id)}" target="_blank" rel="opener" referrerpolicy="no-referrer">打开管理面板 ↗</a>`;
+}
+async function diagnoseJob(id){
+ const target=el('#ai-response');if(!target)return;
+ target.innerHTML='<div class="modal-tip">Codex 正在进行只读分析。诊断日志将发送给 Codex；AI 不会获得 NetDeploy 提供的 SSH 凭据或远程部署权限。</div>';
+ try{const res=await api(`/jobs/${id}/diagnose`,{method:'POST'});target.innerHTML='<h3>Codex 诊断建议</h3><pre class="pre">'+escapeHtml(res.message)+'</pre>';}
+ catch(err){target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';}
+}
+
+let codexStatusLoading=false;
+let codexConnected=false;
+let codexChatOpener=null;
+function setCodexChatStatus(status){
+ codexConnected=Boolean(status?.connected);
+ const label=codexConnected?'已连接 ChatGPT':status?.pending?'等待授权':status?.startup_state==='starting'?'正在启动':status?.available?'请在账号设置中连接':'连接不可用';
+ const node=el('#codex-chat-status');
+ if(node.textContent!==label)node.textContent=label;
+ el('#codex-prompt').disabled=!codexConnected;
+ el('#codex-send').disabled=!codexConnected||el('#codex-command-form').dataset.sending==='true';
+}
+function codexChatVisible(){return !el('#codex-chat').classList.contains('hidden');}
+function setCodexChatOpen(open){
+ el('#codex-chat').classList.toggle('hidden',!open);
+ document.querySelectorAll('[data-action="codex-chat"]').forEach(button=>button.setAttribute('aria-expanded',String(open)));
+ el('#codex-launcher').setAttribute('aria-label',open?'收起 Codex AI 聊天':'打开 Codex AI 聊天');
+}
+function closeCodexChat(restoreFocus=true){
+ setCodexChatOpen(false);
+ if(restoreFocus)(codexChatOpener?.isConnected?codexChatOpener:el('#codex-launcher')).focus?.({preventScroll:true});
+ codexChatOpener=null;
+}
+function scrollCodexThread(){
+ const thread=el('#codex-thread');
+ thread.scrollTop=thread.scrollHeight;
+}
+async function toggleCodexChat(opener){
+ if(!state.token)return;
+ if(codexChatVisible()){closeCodexChat();return;}
+ codexChatOpener=opener;
+ setCodexChatOpen(true);
+ el('#codex-chat-title').focus?.({preventScroll:true});
+ scrollCodexThread();
+ await refreshCodexSettings();
+}
+function logout(){
+ sessionStorage.removeItem('nd_token');
+ state.token='';
+ closeCodexChat(false);
+ el('#codex-launcher').classList.add('hidden');
+ el('#codex-messages').replaceChildren();
+ el('#codex-prompt').value='';
+ delete el('#codex-command-form').dataset.sending;
+ setCodexChatStatus(null);
+ el('#login').classList.remove('hidden');
+}
+async function refreshCodexSettings(){
+ if(!state.token||codexStatusLoading)return;
+ const token=state.token;
+ codexStatusLoading=true;
+ try{
+   const status=await api('/codex/status');
+   if(state.token!==token)return;
+   setCodexChatStatus(status);
+   const node=el('#codex-account-state');
+   if(!node)return;
+   let content='';
+   if(!status.available){
+     if(status.startup_state==='starting'){
+       content='<div class="modal-tip">◌ '+escapeHtml(status.startup_message||'正在后台准备 Codex Worker…')+'</div>'+
+         '<div class="modal-actions"><button class="btn subtle" data-action="codex-refresh">刷新启动状态</button></div>';
+     }else{
+       const detail=status.startup_state==='failed'?
+         '自动启动尚未成功：'+escapeHtml(status.startup_message||'请检查 Windows 原生 Codex SDK 的初始化。'):
+         status.startup_state==='ready'?
+           '本机 Codex Worker 已启动，但当前无法读取 ChatGPT 登录状态。请稍后重新检查，必要时重新运行 QuickStart。':
+           'Codex Worker 尚未运行。Windows 上请双击 QuickStart-NetDeploy.bat，首次自动安装原生 Codex SDK，无需 Docker。Docker/NAS 可运行 docker compose --profile ai up -d --build。';
+       content='<div class="modal-tip warning">'+detail+' 普通 VPS 管理和部署功能不受影响。</div>'+
+         '<div class="modal-actions"><button class="btn subtle" data-action="codex-refresh">重新检查</button></div>';
+     }
+   }else if(status.connected){
+     const mode=status.mode==='windows-native'?'Windows 原生 SDK · 无 Docker':'Docker Worker';
+     content='<div class="modal-tip success-note"><strong>✓ 已连接 ChatGPT 账号</strong><p>运行方式：'+escapeHtml(mode)+'。Codex 诊断将使用此账号可用的订阅额度，仍受套餐及账户限制。</p></div>'+
+       '<div class="modal-actions"><button class="btn danger" data-action="codex-disconnect">断开 ChatGPT 连接</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';
+   }else if(status.pending){
+     const rawUrl=String(status.verification_url||'');
+     const link=/^https:\/\/(auth\.openai\.com|chatgpt\.com)\//.test(rawUrl)?escapeHtml(rawUrl):'';
+     content='<div class="modal-tip"><strong>等待 ChatGPT 账号授权</strong><p>请在自己的浏览器打开下方官方授权页面，登录后输入一次性设备代码。不要向其他人发送此代码。</p></div>'+
+       '<div class="form-group"><label>设备代码（可复制）</label><div class="codex-device-code" role="status" aria-live="polite">'+escapeHtml(status.user_code)+'</div></div>'+
+       '<div class="modal-actions">'+(link?'<a class="btn primary" target="_blank" rel="noopener noreferrer" href="'+link+'">打开 ChatGPT 授权页面 ↗</a>':'<span class="modal-tip warning">验证地址无效，请取消并重新发起</span>')+'<button class="btn subtle" data-action="codex-refresh">检查授权结果</button><button class="btn ghost" data-action="codex-cancel">取消连接</button></div>'+
+       '<p class="helptext">页面会自动检查连接状态。若设备码授权不可用，请先在 ChatGPT 账号安全设置启用设备代码登录。</p>';
+   }else{
+     content='<div class="modal-tip">尚未连接 ChatGPT 账号。点击按钮后将生成官方设备码；使用你自己的 ChatGPT 账号授权，无需在 NetDeploy 中填写 ChatGPT 密码或 API Key。</div>'+
+       (status.auth_type==='other'?'<p class="helptext">当前检测到其他授权方式。使用订阅额度需要切换为 ChatGPT 登录。</p>':'')+
+       (status.error?'<div class="modal-tip warning">'+escapeHtml(status.error)+'</div>':'')+
+       '<div class="modal-actions"><button class="btn primary" data-action="codex-connect">使用 ChatGPT 账号连接 Codex</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';
+   }
+   if(node.innerHTML!==content)node.innerHTML=content;
+ }catch(err){
+   if(state.token!==token)return;
+   setCodexChatStatus(null);
+   const target=el('#codex-account-state');
+   if(target)target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';
+ }finally{codexStatusLoading=false;}
+}
+async function showCodexSettings(){
+ dialog(modalHead('Codex AI · 账号设置',true)+
+   '<div id="codex-account-state"><div class="scan-state" role="status">正在检查 Codex 连接状态…</div></div>');
+ await refreshCodexSettings();
+}
+
+function codexPanelAction(action){
+ const sections={hosts:'服务器管理',projects:'项目中心',jobs:'部署任务'};
+ if(action?.type==='section'&&Object.hasOwn(sections,action.section)){
+   return {label:'打开'+sections[action.section],open:()=>go(action.section)};
+ }
+ if(action?.type==='host'){
+   const host=state.hosts.find(h=>h.id===action.id);
+   if(host)return {label:'打开服务器 '+host.name,open:()=>openHostConsole(host.id)};
+ }
+ if(action?.type==='job'){
+   const job=state.jobs.find(j=>j.id===action.id);
+   if(job)return {label:'打开任务 '+job.id,open:()=>showJob(job.id)};
+ }
+ if(action?.type==='deployment'){
+   const host=state.hosts.find(h=>h.id===action.host_id);
+   const project=catalogProjects(state.catalog).find(([key])=>key===action.project)?.[1];
+   if(host&&project)return {
+     label:`打开 ${host.name} 的 ${project.name} 部署向导`,
+     open:()=>chooseHost(action.project,host.id)
+   };
+ }
+ return null;
+}
+
+function addCodexMessage(role,text){
+ const message=document.createElement('div');
+ message.className='codex-message '+(role==='你'?'from-user':'from-codex');
+ const author=document.createElement('strong');
+ author.textContent=role;
+ const body=document.createElement('p');
+ body.textContent=text;
+ message.append(author,body);
+ el('#codex-messages').append(message);
+ return {message,body};
+}
+function addCodexAction(message,label,open){
+ const button=document.createElement('button');
+ button.type='button';
+ button.className='btn subtle';
+ button.textContent=label;
+ button.addEventListener('click',()=>{
+   closeCodexChat();
+   state.activeJob=null;
+   state.hostPanel=null;
+   state.setupFlowId=null;
+   open();
+ });
+ message.append(button);
+}
+async function submitCodexCommand(event){
+ event.preventDefault();
+ const form=event.currentTarget,submit=el('#codex-send'),input=el('#codex-prompt');
+ const prompt=input.value.trim();
+ if(!prompt||submit.disabled||!state.token)return;
+ addCodexMessage('你',prompt);
+ const {message,body}=addCodexMessage('Codex','正在处理指令…');
+ form.dataset.sending='true';
+ submit.disabled=true;
+ input.value='';
+ input.focus?.({preventScroll:true});
+ scrollCodexThread();
+ try{
+   const reply=await api('/codex/command',{method:'POST',body:JSON.stringify({prompt})});
+   if(!message.isConnected)return;
+   body.textContent=reply.message;
+   if(reply.job){
+     await loadAll(true);
+     if(!message.isConnected)return;
+     if(!state.jobs.some(job=>job.id===reply.job.id))state.jobs.unshift(reply.job);
+     const review=()=>showJob(reply.job.id);
+     addCodexAction(message,'查看部署方案',review);
+     if(codexChatVisible()&&el('#modal').classList.contains('hidden')){
+       state.hostPanel=null;
+       state.setupFlowId=null;
+       review();
+     }
+     return;
+   }
+   const action=codexPanelAction(reply.action);
+   if(!action)return;
+   addCodexAction(message,action.label,()=>{
+     const current=codexPanelAction(reply.action);
+     if(!current){toast('目标已不可用，请重新发送指令',true);return;}
+     current.open();
+   });
+ }catch(err){
+   if(message.isConnected)body.textContent='指令未完成：'+err.message;
+ }finally{
+   if(message.isConnected){
+     delete form.dataset.sending;
+     submit.disabled=!codexConnected;
+     scrollCodexThread();
+   }
+ }
+}
+async function codexAction(name){
+ if(name==='codex-disconnect'&&!window.confirm('确定断开当前 ChatGPT 连接？这将清除 Worker 保存的 Codex 登录状态。'))return;
+ const endpoint=({ 'codex-connect':'connect','codex-cancel':'cancel','codex-disconnect':'logout' })[name];
+ if(endpoint)await api('/codex/'+endpoint,{method:'POST'});
+ await refreshCodexSettings();
+}
+
+async function xuiUpgrade(id){
+ const source=state.jobs.find(j=>j.id===id&&j.project==='3x-ui'&&['completed','partial'].includes(j.status)&& (j.plan.trust_epoch||0)===(state.hosts.find(h=>h.id===j.host_id)?.trust_epoch||0));
+ if(!source){toast('请先完成 3X-UI 安装',true);return;}
+ const existing=state.jobs.find(j=>j.project==='3x-ui-https'&&j.host_id===source.host_id&&
+   j.plan?.options?.source_job_id===source.id&&
+   ['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
+ if(existing){
+   showJob(existing.id);
+   toast(existing.status==='planned'?'已有 HTTPS 待审批方案，可直接继续':'HTTPS 配置任务已启动，可直接查看进度');
+   return;
+ }
+ try{
+   const body={project:'3x-ui-https',host_id:source.host_id,source_job_id:source.id};
+   toast('正在自动检查现有 3X-UI 环境');
+   const job=await api('/jobs',{method:'POST',body:JSON.stringify(body)});
+   state.activeJob=null;await loadAll(true);
+   if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);
+   showJob(job.id);toast('HTTPS 升级计划已生成，请检查证书签发和公网暴露风险后单独审批');
+ }catch(err){toast(err.message,true);}
+}
+async function copyXuiField(field,label){
+ const node=el('#'+field);if(!node)return;
+ try{await navigator.clipboard.writeText(node.value||node.textContent);toast(label+'已复制');}
+ catch{toast('无法访问系统剪贴板，请手动复制',true);}
+}
+async function xuiAccess(id){
+ dialog(modalHead('3X-UI 安全登录')+'<p class="helptext">正在从 VPS 读取账号和地址；不会将密码写入 NetDeploy 数据库或任务日志。</p>');
+ try{
+   const res=await api(`/jobs/${id}/access`);
+   const url=res.direct_url||res.local_url;
+   const npmPlan=state.jobs.find(j=>j.id===id)?.plan?.options?.access_mode==='npm';
+   const tip=res.access_mode==='http'
+     ? `<div class="modal-tip warning">已验证 3X-UI 在 VPS 公网接口监听 HTTP，管理地址是 ${escapeHtml(res.direct_url)}。这是未加密的管理登录；请在云安全组限制来源为自己的管理 IP，并优先使用 NPM 的 HTTPS 域名访问。无需 SSH 隧道。</div>`
+     : res.direct_url
+     ? `<div class="modal-tip">HTTPS 证书及续期服务已经通过 VPS 本机校验。可直接点击打开管理面板；若外部访问失败，请检查云安全组是否允许 TCP ${escapeHtml(res.port)}。建议设置 2FA 和来源 IP 白名单。</div>`
+     : npmPlan?`<div class="modal-tip warning"><b>NPM 负责 HTTPS，本面板无需证书。</b>当前安装仍仅监听本机。请从「已安装面板」审核并执行「开启公网 HTTP」任务，再显示可用的公网 IP 链接；NPM 可通过 host 网络模式反代 127.0.0.1:${escapeHtml(res.port)}。</div>`
+     : `<div class="modal-tip warning">面板目前仅绑定 VPS 127.0.0.1，暂未启用公网 HTTPS。请先运行 SSH 隧道，或返回已完成安装任务点击“启用 HTTPS 直连”。</div>`;
+   const tunnel=res.ssh_tunnel&&!npmPlan?`<div class="form-group"><label>SSH 隧道命令（在另一个 PowerShell 窗口执行）</label><div class="pre">${escapeHtml(res.ssh_tunnel)}</div><button class="btn subtle" data-action="copy-xui-tunnel">复制 SSH 命令</button><textarea id="xui-tunnel" hidden>${escapeHtml(res.ssh_tunnel)}</textarea></div>`:'';
+   const openText=res.direct_url?'直接打开 '+(res.access_mode==='http'?'HTTP':'HTTPS')+' 管理面板 ↗':npmPlan?'先开启公网 HTTP，再打开管理面板':'建立 SSH 隧道后打开本机面板 ↗';
+   dialog(modalHead('3X-UI 登录信息')+tip+tunnel+`<div class="form-group"><label>管理面板地址</label><input id="xui-url" readonly autocomplete="off" value="${escapeHtml(url)}"/><div class="modal-actions"><button class="btn subtle" data-action="copy-xui-url">复制面板地址</button><a class="external" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${openText}</a></div></div>
+   <div class="form-group"><label>管理员用户名</label><input id="xui-username" readonly autocomplete="off" value="${escapeHtml(res.username)}"/><button class="btn subtle" data-action="copy-xui-username">复制用户名</button></div>
+   <div class="form-group"><label>管理员密码（仅本次弹窗显示）</label><input id="xui-password" type="password" readonly autocomplete="off" value="${escapeHtml(res.password)}"/></div>
+   <div class="modal-actions"><button class="btn subtle" data-action="toggle-xui-password">显示 / 隐藏密码</button><button class="btn subtle" data-action="copy-xui-password">复制密码</button><button class="btn primary" data-action="close-modal">关闭</button></div>`);
+ }catch(err){dialog(modalHead('无法安全读取登录信息')+`<div class="modal-tip warning">${escapeHtml(err.message)}</div><div class="modal-actions"><button class="btn primary" data-action="close-modal">关闭</button></div>`);}
+}
+function go(section){state.section=section;renderSection();const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;window.scrollTo({top:0,behavior:reduced?'auto':'smooth'});}
+async function tryLocalLogin(){
+ try {
+   const response=await fetch('/api/local-session',{cache:'no-store',headers:{'X-NetDeploy-Local':'1'}});
+   if(!response.ok)return false;
+   const result=await response.json();
+   if(typeof result.token!=='string'||result.token.length<24)return false;
+   state.token=result.token;
+   sessionStorage.setItem('nd_token',result.token);
+   return true;
+ }catch{return false;}
+}
+async function start(){
+ if(state.token){
+   try{await api('/auth');await showAuthenticatedPanel();return;}
+   catch{state.token='';sessionStorage.removeItem('nd_token');}
+ }
+ if(await tryLocalLogin()){
+   await showAuthenticatedPanel();return;
+ }
+ el('#login').classList.remove('hidden');
+}
+async function showAuthenticatedPanel(){
+ el('#login').classList.add('hidden');
+ el('#codex-launcher').classList.remove('hidden');
+ await loadAll(true);
+}
+el('#login-form').addEventListener('submit',async e=>{e.preventDefault();state.token=el('#admin-token').value;try{await api('/auth');sessionStorage.setItem('nd_token',state.token);el('#admin-token').value='';await showAuthenticatedPanel();}catch(err){toast(err.message,true);}});
+document.addEventListener('click',async e=>{
+ const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
+ if(t.dataset.nav){go(t.dataset.nav);return;}
+ const id=t.dataset.id,act=t.dataset.action;
+ const asyncActions=new Set(['installed-xui','installed-sui','hiddify-job-status','sui-upgrade','existing-xui-https','xui-public-http','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel','codex-settings','codex-connect','codex-cancel','codex-disconnect','codex-refresh']);
+ if(t.dataset.busy==='1')return;
+ const busy=asyncActions.has(act)||act==='apply-ufw-toggle';
+ if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
+ try{
+  if(act==='close-modal'){closeDialog();state.activeJob=null;state.hostPanel=null;state.pendingFingerprint=null;state.setupFlowId=null;}
+  else if(act==='setup-add-port')addSetupPort();
+  else if(act==='setup-remove-port')removeSetupPort(t);
+  else if(act==='setup-retry-failed')await retryFailedSetupPorts(Number(id));
+  else if(act==='setup-firewall')await setupFirewall(Number(id));
+  else if(act==='setup-projects')setupProjects(Number(id));
+  else if(act==='setup-retry')await setupPreflight(Number(id));
+  else if(act==='host-console')openHostConsole(Number(id));
+  else if(act==='back-host'){state.setupFlowId=null;openHostConsole(Number(id),state.hostPanel?.tab||'overview');}
+  else if(act==='host-tab')openHostConsole(Number(id),t.dataset.tab||'overview');
+  else if(act==='toggle-ufw')confirmUfwToggle(Number(id),t.dataset.mode);
+  else if(act==='apply-ufw-toggle')await applyUfwToggle(Number(id),t.dataset.mode);
+  else if(act==='host-check')await checkHostInConsole(Number(id));
+  else if(act==='installed-sui')await showExistingSui(Number(id));
+  else if(act==='hiddify-job-status')await inspectHiddifyJob(id);
+  else if(act==='installed-dockge')await showExistingDockge(Number(id));
+  else if(act==='dockge-config')await configureDockgeAccess(Number(id));
+  else if(act==='copy-dockge-url')await copyXuiField('dockge-url','Dockge Apps 管理地址');
+  else if(act==='copy-dockge-tunnel')await copyXuiField('dockge-tunnel','Dockge Apps SSH 隧道命令');
+  else if(act==='sui-upgrade')await suiUpgrade(Number(id));
+  else if(act==='toggle-sui-password'){const field=el('#sui-password');if(field)field.type=field.type==='password'?'text':'password';}
+  else if(act==='copy-sui-url')await copyXuiField('sui-url','S-UI 面板地址');
+  else if(act==='copy-sui-username')await copyXuiField('sui-username','S-UI 管理员用户名');
+  else if(act==='copy-sui-password')await copyXuiField('sui-password','S-UI 管理员密码');
+  else if(act==='copy-sui-tunnel')await copyXuiField('sui-tunnel','S-UI SSH 隧道命令');
+  else if(act==='installed-xui')await showExistingXui(Number(id));
+  else if(act==='existing-xui-https')await continueExistingXuiHttps(Number(id));
+  else if(act==='xui-public-http')await enableXuiHttp(Number(id));
+  else if(act==='install-new-xui')await createHostPlan(Number(id),'3x-ui');
+  else if(act==='server-install')await createHostPlan(Number(id),t.dataset.project);
+  else if(act==='add-host')addHost();
+  else if(act==='edit-host')editHost(Number(id));
+  else if(act==='delete-host')deleteHost(Number(id));
+  else if(act==='fingerprint')await fingerprint(Number(id));
+  else if(act==='prepare-rekey')prepareRekey(Number(id));
+  else if(act==='credentials')credentials(Number(id));
+  else if(act==='preflight')await preflight(Number(id));
+  else if(act==='plan')chooseHost(t.dataset.project);
+  else if(act==='job')showJob(id);
+  else if(act==='delete-job')confirmDeleteJob(id);
+  else if(act==='confirm-delete-job')await deleteJobRecord(id);
+  else if(act==='diagnose')await diagnoseJob(id);
+  else if(act==='codex-chat')await toggleCodexChat(t);
+  else if(act==='codex-chat-close')closeCodexChat();
+  else if(act==='codex-settings')await showCodexSettings();
+  else if(act==='codex-refresh')await refreshCodexSettings();
+  else if(['codex-connect','codex-cancel','codex-disconnect'].includes(act))await codexAction(act);
+  else if(act==='regenerate-plan')await regeneratePlan(id);
+  else if(act==='xui-upgrade')await xuiUpgrade(id);
+  else if(act==='copy-xui-url')await copyXuiField('xui-url','面板地址');
+  else if(act==='copy-xui-username')await copyXuiField('xui-username','管理员用户名');
+  else if(act==='copy-xui-tunnel')await copyXuiField('xui-tunnel','SSH 隧道命令');
+  else if(act==='xui-access')await xuiAccess(id);
+  else if(act==='toggle-xui-password'){const field=el('#xui-password');if(field)field.type=field.type==='password'?'text':'password';}
+  else if(act==='copy-xui-password')await copyXuiField('xui-password','管理员密码');
+  else if(act==='trust'){
+    if(!el('#verified-key')?.checked){toast('必须通过 VPS 云控制台独立核对指纹',true);return;}
+    try{const result=await api(`/hosts/${id}/trust`,{method:'POST',body:JSON.stringify({fingerprint:t.dataset.fingerprint,confirmed_out_of_band:true})});
+       state.pendingFingerprint=null;closeDialog();await loadAll(true);
+       toast(result.already_trusted?'主机指纹与已信任记录一致':'已信任新的服务器指纹，可以继续检测环境');
+       if(state.setupFlowId===Number(id))await setupPreflight(Number(id));}
+    catch(err){toast(err.message,true);}
+  }
+ }catch(err){toast(err.message||'操作失败，请重试',true);}finally{
+    if(busy&&t.isConnected){t.disabled=false;delete t.dataset.busy;t.classList.remove('is-loading');t.removeAttribute('aria-busy');}
+ }
+});
+/* Pointer glow adds depth only for hover-capable devices. */
+if(window.matchMedia('(hover: hover) and (prefers-reduced-motion: no-preference)').matches){
+ document.addEventListener('pointermove',event=>{
+   if(event.pointerType==='touch')return;
+   const card=event.target.closest?.('.host-item,.project');
+   if(!card)return;
+   const rect=card.getBoundingClientRect();
+   const x=Math.max(0,Math.min(100,((event.clientX-rect.left)/rect.width)*100));
+   const y=Math.max(0,Math.min(100,((event.clientY-rect.top)/rect.height)*100));
+   card.style.setProperty('--hover-x',x+'%');
+   card.style.setProperty('--hover-y',y+'%');
+ },{passive:true});
+}
+document.addEventListener('keydown',e=>{
+ if(e.key==='Escape'&&projectDrag){
+   e.preventDefault();cancelProjectDrag();return;
+ }
+ const layer=el('#modal'),contentNode=el('#modal-content');
+ if(layer&&!layer.classList.contains('hidden')){
+   if(e.key==='Escape'){
+     e.preventDefault();closeDialog();return;
+   }
+   if(e.key==='Tab'){
+     const nodes=Array.from(contentNode?.querySelectorAll?.('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')||[])
+       .filter(node=>node.getClientRects?.().length!==0);
+     if(!nodes.length){e.preventDefault();contentNode.focus?.();return;}
+     const first=nodes[0],last=nodes[nodes.length-1];
+     if(e.shiftKey&&(document.activeElement===first||!contentNode.contains?.(document.activeElement))){e.preventDefault();last.focus?.();}
+     else if(!e.shiftKey&&(document.activeElement===last||!contentNode.contains?.(document.activeElement))){e.preventDefault();first.focus?.();}
+     return;
+   }
+ }
+ const card=e.target.closest?.('[data-action="host-console"]');
+ if(card&&e.target===card&&(e.key==='Enter'||e.key===' ')){
+   e.preventDefault();openHostConsole(Number(card.dataset.id));
+ }
+ if(e.key==='Escape'&&codexChatVisible()&&el('#codex-chat').contains(e.target)){
+   e.preventDefault();closeCodexChat();
+ }
+});
+el('#refresh').addEventListener('click',async e=>{const button=e.currentTarget;button.classList.add('is-loading');button.disabled=true;try{await loadAll();}finally{button.classList.remove('is-loading');button.disabled=false;}});
+el('#logout').addEventListener('click',logout);
+el('#codex-command-form').addEventListener('submit',submitCodexCommand);
+el('#codex-prompt').addEventListener('keydown',e=>{
+ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){
+   e.preventDefault();
+   if(!el('#codex-send').disabled)el('#codex-command-form').requestSubmit();
+ }
+});
+setInterval(()=>{if(state.token){loadAll(true);if(codexChatVisible()||el('#codex-account-state'))refreshCodexSettings();}},5000);
+start();

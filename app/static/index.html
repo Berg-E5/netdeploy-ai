@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="referrer" content="no-referrer"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"/>
+<title>NetDeploy AI · VPS 智能部署平台</title>
+<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/app.css"/>
+<link rel="stylesheet" href="/static/app-enhanced.css"/>
+<link rel="stylesheet" href="/static/theme.css"/>
+<link rel="stylesheet" href="/static/typography.css"/>
+<link rel="stylesheet" href="/static/ui-refinement.css"/>
+<link rel="stylesheet" href="/static/codex-chat.css"/>
+</head>
+<body>
+<div id="login" class="login-overlay hidden">
+  <div class="login-box">
+    <div class="brand-logo large">◇</div>
+    <h1>欢迎使用 NetDeploy AI</h1>
+    <p>输入部署服务启动时配置的管理员令牌</p>
+    <form id="login-form">
+      <label for="admin-token">管理员令牌</label>
+      <input type="password" required minlength="24" id="admin-token" placeholder="NETDEPLOY_ADMIN_TOKEN" autocomplete="off"/>
+      <button class="btn primary wide" type="submit">进入控制台 →</button>
+    </form>
+    <div class="login-tip">当前 Alpha 版本仅适合可信单管理员环境。请通过本地端口或 SSH 隧道访问，不要直接暴露公网。</div>
+  </div>
+</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-logo">◇</div><div><strong>NetDeploy <span>AI</span></strong><small>智能网络部署平台</small></div></div>
+    <div class="sidebar-caption">工作空间</div>
+    <nav class="nav" aria-label="主导航">
+      <button class="nav-item active" data-nav="dashboard" aria-label="总览面板" aria-current="page" title="总览面板"><span class="nav-symbol" aria-hidden="true">▦</span> 总览面板</button>
+      <button class="nav-item" data-nav="projects" aria-label="项目中心" title="项目中心"><span class="nav-symbol" aria-hidden="true">⬡</span> 项目中心 <span class="nav-count" id="project-nav-count" aria-label="项目总数" aria-live="polite">…</span></button>
+      <button class="nav-item" data-nav="hosts" aria-label="服务器管理" title="服务器管理"><span class="nav-symbol" aria-hidden="true">▤</span> 服务器管理</button>
+      <button class="nav-item" data-nav="jobs" aria-label="部署任务" title="部署任务"><span class="nav-symbol" aria-hidden="true">≡</span> 部署任务</button>
+      <button class="nav-item" data-action="codex-chat" aria-label="Codex AI 聊天" title="Codex AI 聊天" aria-controls="codex-chat" aria-expanded="false"><span class="nav-symbol" aria-hidden="true">✦</span> Codex AI</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="agent-info"><span class="pulse"></span><div><b>安全执行模式</b><small>经审核的固定部署步骤</small></div></div>
+      <button class="logout" id="logout">退出登录 ↗</button>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb">工作空间 <span>/</span> <b id="crumb-current">总览面板</b></div>
+      <div class="top-actions"><a class="topbar-doc-link" href="https://slobys.github.io/netdeploy-ai/" target="_blank" rel="noopener noreferrer" aria-label="打开 NetDeploy AI 在线使用文档">？ 使用文档 ↗</a><div class="theme-control" id="theme-control">
+  <button type="button" id="theme-menu-button" class="topbar-theme-button" aria-expanded="false" aria-controls="theme-menu" aria-label="外观主题设置">
+    <span class="topbar-theme-icon" aria-hidden="true">◐</span><span class="topbar-theme-text">主题</span>
+  </button>
+  <section id="theme-menu" class="theme-menu" aria-label="外观主题设置" hidden>
+    <div class="theme-menu-head"><div><strong>外观与主题</strong><small>即时预览，自动保存至当前浏览器</small></div><span aria-hidden="true">✦</span></div>
+    <p class="theme-caption" id="appearance-label">外观模式</p>
+    <div class="theme-mode-options" role="group" aria-labelledby="appearance-label">
+      <button type="button" class="theme-choice" data-theme-mode="light" aria-pressed="false">☀ 明亮</button>
+      <button type="button" class="theme-choice" data-theme-mode="dark" aria-pressed="true">☾ 暗黑</button>
+      <button type="button" class="theme-choice" data-theme-mode="system" aria-pressed="false">◐ 跟随系统</button>
+    </div>
+    <p class="theme-caption" id="palette-label">主题配色</p>
+    <div class="theme-swatches" role="group" aria-labelledby="palette-label">
+      <button type="button" class="theme-swatch" data-theme-color="blue" aria-pressed="true"><span class="theme-swatch-dot" aria-hidden="true"></span>经典蓝</button>
+      <button type="button" class="theme-swatch" data-theme-color="violet" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>极光紫</button>
+      <button type="button" class="theme-swatch" data-theme-color="teal" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>海洋青</button>
+      <button type="button" class="theme-swatch" data-theme-color="emerald" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>翡翠绿</button>
+      <button type="button" class="theme-swatch" data-theme-color="rose" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>玫瑰粉</button>
+      <button type="button" class="theme-swatch" data-theme-color="amber" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>暖日橙</button>
+    </div>
+    <p class="theme-caption" id="font-label">阅读字号</p>
+    <div class="theme-font-options" role="group" aria-labelledby="font-label">
+      <button type="button" class="theme-font-choice" data-theme-font="standard" aria-pressed="false"><span class="theme-font-symbol">A</span><span>标准</span></button>
+      <button type="button" class="theme-font-choice" data-theme-font="comfortable" aria-pressed="true"><span class="theme-font-symbol">A</span><span>舒适</span></button>
+      <button type="button" class="theme-font-choice" data-theme-font="large" aria-pressed="false"><span class="theme-font-symbol">A</span><span>大字</span></button>
+    </div>
+    <p class="theme-font-note">推荐「舒适」：标题醒目，正文清晰，表单更好阅读。</p>
+    <div class="theme-menu-foot">当前：<span id="theme-status" role="status" aria-live="polite">暗黑 · 经典蓝</span></div>
+  </section>
+</div><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><span class="tag alpha">ALPHA v0.3.31</span><button id="refresh" class="icon-button" aria-label="刷新服务器与任务数据" title="刷新服务器与任务数据">⟳</button><div class="avatar">ND</div></div>
+    </header>
+    <main class="content">
+      <section class="hero" id="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content"><div class="eyebrow"><span class="live-dot"></span> NETDEPLOY AI CONTROL CENTER</div>
+          <h1>服务器管理 <em>更简单、更直观。</em></h1>
+          <p>添加或编辑 VPS、核对 SSH 指纹、验证连接与部署项目，都能在首页直接完成。</p>
+          <div class="hero-actions"><button class="btn primary" data-action="add-host">＋ 添加 VPS 服务器</button><button class="btn ghost" data-nav="projects">探索项目 →</button></div>
+        </div>
+        <div class="hero-art"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="center-cube">⌘</div><div class="orbit-node node-1">⌁</div><div class="orbit-node node-2">▣</div><div class="orbit-node node-3">◈</div></div>
+      </section>
+      <section class="section" id="hosts-section"><div class="section-heading smaller"><div><h2>我的 VPS 服务器</h2><p>连接、编辑、重装后重新核对指纹、环境检测，均可在此操作</p></div></div><div class="host-list" id="host-list"></div></section>
+      <div class="section-heading"><div><h2 id="section-title">运行概览</h2><p id="section-subtitle">集中管理服务器与自动化部署任务</p></div></div>
+      <div class="stats" id="stats"></div>
+      <section class="section" id="projects-section"><div class="section-heading smaller"><div><h2>精选部署项目</h2><p>选择经过审核的安装模板，AI 仅提供只读诊断建议</p></div><button class="text-action" data-nav="projects">查看全部项目 →</button></div><div class="project-grid" id="project-grid"></div></section>
+      <section class="section" id="jobs-section"><div class="section-heading smaller"><div><h2>最近部署任务</h2><p>审批、状态和日志都清楚可见</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div><div class="job-list" id="job-list"></div></section>
+      <p id="project-order-status" role="status"></p>
+      <footer>NetDeploy AI v0.3.31 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
+    </main>
+  </div>
+</div>
+<button id="codex-launcher" type="button" class="btn primary hidden" data-action="codex-chat" aria-label="打开 Codex AI 聊天" aria-controls="codex-chat" aria-expanded="false" title="Codex AI 聊天">
+  <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 10a7 7 0 0 1-7 7H9l-6 4V7a4 4 0 0 1 4-4h7a7 7 0 0 1 7 7Z"/><path d="M7 10h2m3 0h2m3 0h1"/></svg>
+</button>
+<section id="codex-chat" class="codex-chat hidden" role="dialog" aria-labelledby="codex-chat-title">
+  <header class="codex-chat-header">
+    <svg class="codex-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4Z"/></svg>
+    <div class="codex-chat-heading"><h2 id="codex-chat-title" tabindex="-1">Codex AI</h2><p id="codex-chat-status" role="status">正在检查连接…</p></div>
+    <button type="button" class="btn subtle" data-action="codex-settings">账号设置</button>
+    <button type="button" class="close" data-action="codex-chat-close" aria-label="收起 Codex AI 聊天">×</button>
+  </header>
+  <div id="codex-thread" class="codex-thread" role="log" aria-label="当前页面的对话" aria-live="polite" tabindex="0">
+    <div class="codex-chat-intro"><strong>想在面板里做什么？</strong><p>可以查任务、找服务器，或为指定 VPS 和项目生成待审批的部署方案。</p><p>例如：查看最近的部署任务</p></div>
+    <div id="codex-messages" class="codex-messages"></div>
+  </div>
+  <form id="codex-command-form" class="codex-composer">
+    <div class="codex-compose-row">
+      <textarea id="codex-prompt" rows="2" maxlength="1000" required disabled aria-label="给 Codex 的指令" aria-describedby="codex-chat-note" placeholder="输入指令…"></textarea>
+      <button id="codex-send" type="submit" class="btn primary" disabled>发送</button>
+    </div>
+    <p id="codex-chat-note">指令会随服务器名称、近期任务状态和项目名称发送。请勿输入凭据。</p>
+  </form>
+</section>
+<div id="modal" class="modal-wrap hidden" role="dialog" aria-modal="true" aria-labelledby="nd-modal-title"><div class="modal-backdrop" data-action="close-modal"></div><div class="modal" id="modal-content" tabindex="-1"></div></div>
+<div id="toast" class="toast hidden" role="status"></div>
+<script src="/static/app.js" defer></script>
+</body>
+</html>

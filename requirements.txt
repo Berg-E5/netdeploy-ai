@@ -1,0 +1,7 @@
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+pydantic>=2.0,<3.0
+httpx>=0.27,<1
+paramiko>=3.4,<5  # SSH password authentication with strict host-key verification
+keyring>=25.0,<27  # Windows Credential Locker; no plaintext password storage
+# Windows Codex is installed separately from requirements-codex-worker.txt.
